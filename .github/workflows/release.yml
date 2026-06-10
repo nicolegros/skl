@@ -26,7 +26,7 @@ jobs:
           node-version: 20
 
       - name: Install auto
-        run: npm install -g auto @auto-it/conventional-commits @auto-it/exec
+        run: npm install -g auto @auto-it/git-tag @auto-it/conventional-commits @auto-it/exec
 
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v6
