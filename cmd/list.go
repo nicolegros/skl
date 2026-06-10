@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/nicolaslegros/skills/internal/config"
-	"github.com/nicolaslegros/skills/internal/lock"
+	"github.com/nicolegros/skl/internal/config"
+	"github.com/nicolegros/skl/internal/lock"
 	"github.com/spf13/cobra"
 )
 

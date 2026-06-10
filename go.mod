@@ -1,4 +1,4 @@
-module github.com/nicolaslegros/skills
+module github.com/nicolegros/skl
 
 go 1.24
 

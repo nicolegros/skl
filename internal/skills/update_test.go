@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nicolaslegros/skills/internal/lock"
+	"github.com/nicolegros/skl/internal/lock"
 )
 
 func TestUpdate_RefreshesUnpinnedSkill(t *testing.T) {

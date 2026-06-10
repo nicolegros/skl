@@ -5,7 +5,7 @@ A CLI tool to manage agent skill installations from GitHub repositories.
 ## Install
 
 ```bash
-go install github.com/nicolaslegros/skills@latest
+go install github.com/nicolegros/skl@latest
 ```
 
 Or build from source:

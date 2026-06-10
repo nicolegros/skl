@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/nicolaslegros/skills/internal/lock"
+	"github.com/nicolegros/skl/internal/lock"
 )
 
 type RemoveOptions struct {

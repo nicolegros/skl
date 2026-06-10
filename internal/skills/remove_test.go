@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nicolaslegros/skills/internal/lock"
+	"github.com/nicolegros/skl/internal/lock"
 )
 
 func TestRemove_DeletesFromDirsAndLock(t *testing.T) {

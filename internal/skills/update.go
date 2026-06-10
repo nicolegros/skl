@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nicolaslegros/skills/internal/lock"
+	"github.com/nicolegros/skl/internal/lock"
 )
 
 type UpdateOptions struct {
