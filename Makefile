@@ -7,7 +7,7 @@ test:
 	go test ./...
 
 build:
-	go build -o skills .
+	go build -o skl .
 
 install:
 	go install .

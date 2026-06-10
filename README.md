@@ -1,4 +1,4 @@
-# skills
+# skl
 
 A CLI tool to manage agent skill installations from GitHub repositories.
 
@@ -34,29 +34,29 @@ The `directories` array lists where skills get installed. A default config is cr
 
 ```bash
 # From a single-skill repo
-skills install owner/repo
+skl install owner/repo
 
 # From a subdirectory in a multi-skill repo
-skills install owner/repo grill-me
+skl install owner/repo grill-me
 
 # Full GitHub URL works too
-skills install https://github.com/owner/repo grill-me
+skl install https://github.com/owner/repo grill-me
 
 # Pin to a specific ref (branch, tag, or commit)
-skills install owner/repo --ref v1.0.0
+skl install owner/repo --ref v1.0.0
 
 # Install all skills from a repo
-skills install owner/repo --all
+skl install owner/repo --all
 ```
 
 ### Update skills
 
 ```bash
 # Update all installed skills
-skills update
+skl update
 
 # Update a specific skill
-skills update grill-me
+skl update grill-me
 ```
 
 Pinned skills will warn before updating and remain pinned to the new SHA.
@@ -64,13 +64,13 @@ Pinned skills will warn before updating and remain pinned to the new SHA.
 ### Remove a skill
 
 ```bash
-skills remove grill-me
+skl remove grill-me
 ```
 
 ### List installed skills
 
 ```bash
-skills list
+skl list
 ```
 
 ## Authentication
@@ -79,7 +79,7 @@ For private repositories, set the `GITHUB_TOKEN` environment variable:
 
 ```bash
 export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
-skills install owner/private-repo
+skl install owner/private-repo
 ```
 
 ## Lock file

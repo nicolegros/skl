@@ -25,4 +25,4 @@ jobs:
         run: go test ./...
 
       - name: Build
-        run: go build -o skills .
+        run: go build -o skl .

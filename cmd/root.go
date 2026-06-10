@@ -6,7 +6,7 @@ import (
 
 func NewRoot() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "skills",
+		Use:   "skl",
 		Short: "Manage agent skill installations from GitHub",
 	}
 	root.AddCommand(newInstall(), newUpdate(), newRemove(), newList())
