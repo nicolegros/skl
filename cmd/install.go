@@ -40,7 +40,7 @@ func newInstall() *cobra.Command {
 				dirs[i] = skills.ExpandPath(d)
 			}
 
-			lockPath := filepath.Join(config.Dir(), "skills-lock.json")
+			lockPath := filepath.Join(config.Dir(), "skl.lock")
 			token := os.Getenv("GITHUB_TOKEN")
 
 			opts := skills.InstallOptions{

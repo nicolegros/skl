@@ -10,7 +10,7 @@ import (
 
 func TestRemove_DeletesFromDirsAndLock(t *testing.T) {
 	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skills-lock.json")
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
 
 	// Pre-populate
 	os.MkdirAll(filepath.Join(installDir, "tdd"), 0o755)
@@ -43,7 +43,7 @@ func TestRemove_DeletesFromDirsAndLock(t *testing.T) {
 }
 
 func TestRemove_ErrorsOnUnknownSkill(t *testing.T) {
-	lockPath := filepath.Join(t.TempDir(), "skills-lock.json")
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
 	lock.Save(&lock.File{}, lockPath)
 
 	err := Remove(RemoveOptions{

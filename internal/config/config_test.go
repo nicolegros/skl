@@ -39,15 +39,26 @@ func TestLoad_CreatesDefaultConfigWhenMissing(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	want := []string{"~/.skills"}
-	if len(cfg.Directories) != 1 || cfg.Directories[0] != want[0] {
-		t.Errorf("Load() directories = %v, want %v", cfg.Directories, want)
+	want := []string{
+		"~/.kiro/skills",
+		"~/.copilot/skills",
+		"~/.claude/skills",
+		"~/.agents/skills",
+		"~/.pi/agent/skills",
+	}
+	if len(cfg.Directories) != len(want) {
+		t.Fatalf("Load() directories = %v, want %v", cfg.Directories, want)
+	}
+	for i, d := range cfg.Directories {
+		if d != want[i] {
+			t.Errorf("directories[%d] = %q, want %q", i, d, want[i])
+		}
 	}
 
-	// Verify file was actually written
-	configPath := filepath.Join(dir, "skl", "config.json")
+	// Verify file was actually written as YAML
+	configPath := filepath.Join(dir, "skl", "config.yaml")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		t.Error("config.json was not created on disk")
+		t.Error("config.yaml was not created on disk")
 	}
 }
 
@@ -57,9 +68,7 @@ func TestLoad_ReadsExistingConfig(t *testing.T) {
 
 	configDir := filepath.Join(dir, "skl")
 	os.MkdirAll(configDir, 0o755)
-	os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{
-		"directories": ["~/custom-dir", "/absolute/path"]
-	}`), 0o644)
+	os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte("directories:\n  - ~/custom-dir\n  - /absolute/path\n"), 0o644)
 
 	cfg, err := Load()
 	if err != nil {

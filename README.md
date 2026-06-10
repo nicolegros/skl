@@ -16,17 +16,21 @@ make install
 
 ## Configuration
 
-Config lives at `$XDG_CONFIG_HOME/skl/config.json` (defaults to `~/.config/skl/config.json`).
+Config lives at `$XDG_CONFIG_HOME/skl/config.yaml` (defaults to `~/.config/skl/config.yaml`).
 
-On Windows: `%APPDATA%/skl/config.json`.
+On Windows: `%APPDATA%/skl/config.yaml`.
 
-```json
-{
-  "directories": ["~/.skills"]
-}
+```yaml
+# Directories where skills are installed
+directories:
+  - ~/.kiro/skills       # Kiro
+  - ~/.copilot/skills    # Copilot
+  - ~/.claude/skills     # Claude
+  - ~/.agents/skills     # Codex
+  - ~/.pi/agent/skills   # Pi
 ```
 
-The `directories` array lists where skills get installed. A default config is created automatically on first use.
+The `directories` list specifies where skills get installed. A default config is created automatically on first use. Remove any entries for providers you don't use.
 
 ## Usage
 
@@ -84,4 +88,4 @@ skl install owner/private-repo
 
 ## Lock file
 
-Installed skills are tracked in `~/.config/skl/skills-lock.json`. This file records the source repo, subdirectory path, resolved commit SHA, and whether the skill is pinned.
+Installed skills are tracked in `~/.config/skl/skl.lock`. This file records the source repo, subdirectory path, resolved commit SHA, and whether the skill is pinned.
