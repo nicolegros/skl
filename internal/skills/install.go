@@ -198,7 +198,10 @@ func extractTarball(r io.Reader, dest string) error {
 			if err != nil {
 				return err
 			}
-			io.Copy(f, tr)
+			if _, err := io.Copy(f, tr); err != nil {
+				f.Close()
+				return err
+			}
 			f.Close()
 		}
 	}
