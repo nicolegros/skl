@@ -8,7 +8,7 @@ import (
 
 func TestLoad_ReturnsEmptyWhenFileMissing(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "skills-lock.json")
+	path := filepath.Join(dir, "skl.lock")
 
 	lf, err := Load(path)
 	if err != nil {
@@ -21,7 +21,7 @@ func TestLoad_ReturnsEmptyWhenFileMissing(t *testing.T) {
 
 func TestSave_WritesAndLoadsBack(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "skills-lock.json")
+	path := filepath.Join(dir, "skl.lock")
 
 	lf := &File{Skills: []Skill{
 		{Name: "grill-me", Repo: "owner/repo", Path: "grill-me", Ref: "abc123", Pinned: false},

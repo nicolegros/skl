@@ -25,7 +25,7 @@ func newRemove() *cobra.Command {
 				dirs[i] = skills.ExpandPath(d)
 			}
 
-			lockPath := filepath.Join(config.Dir(), "skills-lock.json")
+			lockPath := filepath.Join(config.Dir(), "skl.lock")
 
 			if err := skills.Remove(skills.RemoveOptions{
 				Name:     args[0],

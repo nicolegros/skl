@@ -15,7 +15,7 @@ func newList() *cobra.Command {
 		Short: "List installed skills",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			lockPath := filepath.Join(config.Dir(), "skills-lock.json")
+			lockPath := filepath.Join(config.Dir(), "skl.lock")
 
 			lf, err := lock.Load(lockPath)
 			if err != nil {

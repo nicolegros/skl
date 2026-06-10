@@ -23,7 +23,7 @@ func TestUpdate_RefreshesUnpinnedSkill(t *testing.T) {
 	defer srv.Close()
 
 	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skills-lock.json")
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
 
 	// Pre-populate installed state
 	os.MkdirAll(filepath.Join(installDir, "repo"), 0o755)
@@ -72,7 +72,7 @@ func TestUpdate_WarnsOnPinnedButStillUpdates(t *testing.T) {
 	defer srv.Close()
 
 	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skills-lock.json")
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
 
 	os.MkdirAll(filepath.Join(installDir, "repo"), 0o755)
 	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), []byte("# Old"), 0o644)
@@ -123,7 +123,7 @@ func TestUpdate_SpecificSkillOnly(t *testing.T) {
 	defer srv.Close()
 
 	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skills-lock.json")
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
 
 	os.MkdirAll(filepath.Join(installDir, "tdd"), 0o755)
 	os.MkdirAll(filepath.Join(installDir, "grill"), 0o755)

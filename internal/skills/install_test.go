@@ -43,7 +43,7 @@ func TestInstall_SingleSkillRepo(t *testing.T) {
 	defer srv.Close()
 
 	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skills-lock.json")
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
 
 	err := Install(InstallOptions{
 		Owner:    "owner",
@@ -94,7 +94,7 @@ func TestInstall_SubdirectorySkill(t *testing.T) {
 	defer srv.Close()
 
 	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skills-lock.json")
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
 
 	err := Install(InstallOptions{
 		Owner:    "owner",
@@ -135,7 +135,7 @@ func TestInstall_FailsWithoutSkillMd(t *testing.T) {
 	defer srv.Close()
 
 	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skills-lock.json")
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
 
 	err := Install(InstallOptions{
 		Owner:    "owner",

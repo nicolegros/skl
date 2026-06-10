@@ -26,7 +26,7 @@ func newUpdate() *cobra.Command {
 				dirs[i] = skills.ExpandPath(d)
 			}
 
-			lockPath := filepath.Join(config.Dir(), "skills-lock.json")
+			lockPath := filepath.Join(config.Dir(), "skl.lock")
 
 			var name string
 			if len(args) > 0 {
