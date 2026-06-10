@@ -14,10 +14,10 @@ type Config struct {
 // Dir returns the directory where the skills config and lock files live.
 func Dir() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "skills")
+		return filepath.Join(xdg, "skl")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "skills")
+	return filepath.Join(home, ".config", "skl")
 }
 
 // Load reads the config from disk, creating it with defaults if missing.

@@ -11,7 +11,7 @@ func TestConfigDir_UsesXDGWhenSet(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 
 	got := Dir()
-	want := filepath.Join(xdg, "skills")
+	want := filepath.Join(xdg, "skl")
 
 	if got != want {
 		t.Errorf("Dir() = %q, want %q", got, want)
@@ -23,7 +23,7 @@ func TestConfigDir_FallsBackToDotConfig(t *testing.T) {
 
 	home, _ := os.UserHomeDir()
 	got := Dir()
-	want := filepath.Join(home, ".config", "skills")
+	want := filepath.Join(home, ".config", "skl")
 
 	if got != want {
 		t.Errorf("Dir() = %q, want %q", got, want)
@@ -45,7 +45,7 @@ func TestLoad_CreatesDefaultConfigWhenMissing(t *testing.T) {
 	}
 
 	// Verify file was actually written
-	configPath := filepath.Join(dir, "skills", "config.json")
+	configPath := filepath.Join(dir, "skl", "config.json")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		t.Error("config.json was not created on disk")
 	}
@@ -55,7 +55,7 @@ func TestLoad_ReadsExistingConfig(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	configDir := filepath.Join(dir, "skills")
+	configDir := filepath.Join(dir, "skl")
 	os.MkdirAll(configDir, 0o755)
 	os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{
 		"directories": ["~/custom-dir", "/absolute/path"]

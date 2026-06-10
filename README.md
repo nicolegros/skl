@@ -16,9 +16,9 @@ make install
 
 ## Configuration
 
-Config lives at `$XDG_CONFIG_HOME/skills/config.json` (defaults to `~/.config/skills/config.json`).
+Config lives at `$XDG_CONFIG_HOME/skl/config.json` (defaults to `~/.config/skl/config.json`).
 
-On Windows: `%APPDATA%/skills/config.json`.
+On Windows: `%APPDATA%/skl/config.json`.
 
 ```json
 {
@@ -84,4 +84,4 @@ skl install owner/private-repo
 
 ## Lock file
 
-Installed skills are tracked in `~/.config/skills/skills-lock.json`. This file records the source repo, subdirectory path, resolved commit SHA, and whether the skill is pinned.
+Installed skills are tracked in `~/.config/skl/skills-lock.json`. This file records the source repo, subdirectory path, resolved commit SHA, and whether the skill is pinned.
