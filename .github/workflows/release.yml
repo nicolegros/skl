@@ -24,7 +24,7 @@ jobs:
           node-version: 20
 
       - name: Install auto
-        run: npm install -g auto @auto-it/conventional-commits @auto-it/goreleaser
+        run: npm install -g auto @auto-it/conventional-commits @auto-it/exec
 
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -37,7 +37,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Release
-        run: auto shipit
+        run: auto shipit --no-changelog
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
