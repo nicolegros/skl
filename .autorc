@@ -1,5 +1,13 @@
 {
-  "plugins": ["conventional-commits", "goreleaser"],
+  "plugins": [
+    "conventional-commits",
+    [
+      "exec",
+      {
+        "afterRelease": "goreleaser release --clean"
+      }
+    ]
+  ],
   "owner": "nicolegros",
-  "repo": "skills",
+  "repo": "skills"
 }
