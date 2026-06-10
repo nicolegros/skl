@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -121,6 +122,101 @@ func TestInstall_SubdirectorySkill(t *testing.T) {
 	lf, _ := lock.Load(lockPath)
 	if lf.Skills[0].Name != "grill-me" || lf.Skills[0].Path != "grill-me" {
 		t.Errorf("lock entry = %+v", lf.Skills[0])
+	}
+}
+
+func TestInstallFromLock_InstallsMissingSkills(t *testing.T) {
+	tarball := makeTarball(t, "owner-myskill-abc123", map[string]string{
+		"SKILL.md": "# My Skill",
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(tarball)
+	}))
+	defer srv.Close()
+
+	installDir := t.TempDir()
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
+
+	// Pre-populate lock file with one skill
+	lf := &lock.File{Skills: []lock.Skill{
+		{Name: "myskill", Repo: "owner/myskill", Ref: "abc123"},
+	}}
+	lock.Save(lf, lockPath)
+
+	var logs []string
+	logf := func(format string, a ...any) {
+		logs = append(logs, fmt.Sprintf(format, a...))
+	}
+
+	err := InstallFromLock(lockPath, srv.URL, "", []string{installDir}, logf)
+	if err != nil {
+		t.Fatalf("InstallFromLock() error = %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(installDir, "myskill", "SKILL.md")); os.IsNotExist(err) {
+		t.Error("myskill/SKILL.md not installed")
+	}
+
+	if len(logs) != 1 {
+		t.Errorf("expected 1 log message, got %d: %v", len(logs), logs)
+	}
+	if logs[0] != "Installing myskill from owner/myskill@abc123" {
+		t.Errorf("unexpected log: %s", logs[0])
+	}
+}
+
+func TestInstallFromLock_SkipsAlreadyInstalled(t *testing.T) {
+	tarball := makeTarball(t, "owner-repo-abc123", map[string]string{
+		"SKILL.md": "# My Skill",
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(tarball)
+	}))
+	defer srv.Close()
+
+	installDir := t.TempDir()
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
+
+	// Pre-install one skill
+	os.MkdirAll(filepath.Join(installDir, "existing"), 0o755)
+	os.WriteFile(filepath.Join(installDir, "existing", "SKILL.md"), []byte("# Existing"), 0o644)
+
+	lf := &lock.File{Skills: []lock.Skill{
+		{Name: "existing", Repo: "owner/repo", Ref: "abc123"},
+		{Name: "missing", Repo: "owner/repo", Ref: "abc123"},
+	}}
+	lock.Save(lf, lockPath)
+
+	var logs []string
+	logf := func(format string, a ...any) {
+		logs = append(logs, fmt.Sprintf(format, a...))
+	}
+
+	err := InstallFromLock(lockPath, srv.URL, "", []string{installDir}, logf)
+	if err != nil {
+		t.Fatalf("InstallFromLock() error = %v", err)
+	}
+
+	// Should have skipped existing and installed missing
+	if len(logs) != 2 {
+		t.Fatalf("expected 2 log messages, got %d: %v", len(logs), logs)
+	}
+	if logs[0] != "Skipping existing (already installed)" {
+		t.Errorf("unexpected log[0]: %s", logs[0])
+	}
+	if logs[1] != "Installing missing from owner/repo@abc123" {
+		t.Errorf("unexpected log[1]: %s", logs[1])
+	}
+}
+
+func TestInstallFromLock_ErrorsOnEmptyLock(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
+
+	err := InstallFromLock(lockPath, "", "", nil, func(string, ...any) {})
+	if err == nil {
+		t.Fatal("expected error for empty lock file")
 	}
 }
 

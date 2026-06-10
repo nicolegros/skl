@@ -16,20 +16,10 @@ func newInstall() *cobra.Command {
 	var all bool
 
 	cmd := &cobra.Command{
-		Use:   "install <owner/repo or URL> [path]",
-		Short: "Install a skill from a GitHub repository",
-		Args:  cobra.RangeArgs(1, 2),
+		Use:   "install [owner/repo or URL] [path]",
+		Short: "Install a skill from a GitHub repository, or all missing skills from lock file",
+		Args:  cobra.RangeArgs(0, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			owner, repo, err := github.ParseRepo(args[0])
-			if err != nil {
-				return err
-			}
-
-			var path string
-			if len(args) > 1 {
-				path = args[1]
-			}
-
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -42,6 +32,22 @@ func newInstall() *cobra.Command {
 
 			lockPath := filepath.Join(config.Dir(), "skl.lock")
 			token := os.Getenv("GITHUB_TOKEN")
+
+			if len(args) == 0 {
+				return skills.InstallFromLock(lockPath, "https://api.github.com", token, dirs, func(format string, a ...any) {
+					fmt.Printf(format+"\n", a...)
+				})
+			}
+
+			owner, repo, err := github.ParseRepo(args[0])
+			if err != nil {
+				return err
+			}
+
+			var path string
+			if len(args) > 1 {
+				path = args[1]
+			}
 
 			opts := skills.InstallOptions{
 				Owner:    owner,

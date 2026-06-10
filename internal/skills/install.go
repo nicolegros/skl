@@ -165,6 +165,50 @@ func InstallAll(opts InstallOptions) error {
 	return lock.Save(lf, opts.LockPath)
 }
 
+// InstallFromLock installs all skills from the lock file that are missing from disk.
+func InstallFromLock(lockPath, baseURL, token string, dirs []string, logf func(string, ...any)) error {
+	lf, err := lock.Load(lockPath)
+	if err != nil {
+		return err
+	}
+	if len(lf.Skills) == 0 {
+		return fmt.Errorf("lock file is empty or missing")
+	}
+
+	for _, s := range lf.Skills {
+		if skillExists(s.Name, dirs) {
+			logf("Skipping %s (already installed)", s.Name)
+			continue
+		}
+		logf("Installing %s from %s@%s", s.Name, s.Repo, s.Ref)
+		parts := strings.SplitN(s.Repo, "/", 2)
+		err := Install(InstallOptions{
+			Owner:    parts[0],
+			Repo:     parts[1],
+			Path:     s.Path,
+			Ref:      s.Ref,
+			Pinned:   s.Pinned,
+			BaseURL:  baseURL,
+			Dirs:     dirs,
+			LockPath: lockPath,
+			Token:    token,
+		})
+		if err != nil {
+			return fmt.Errorf("installing %s: %w", s.Name, err)
+		}
+	}
+	return nil
+}
+
+func skillExists(name string, dirs []string) bool {
+	for _, dir := range dirs {
+		if _, err := os.Stat(filepath.Join(dir, name, "SKILL.md")); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // ExpandPath resolves ~ to home directory.
 func ExpandPath(path string) string {
 	if strings.HasPrefix(path, "~/") {
