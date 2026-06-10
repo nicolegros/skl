@@ -2,8 +2,8 @@ package skills
 
 import (
 	"archive/tar"
-	"compress/gzip"
 	"bytes"
+	"compress/gzip"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -46,14 +46,14 @@ func TestInstall_SingleSkillRepo(t *testing.T) {
 	lockPath := filepath.Join(t.TempDir(), "skills-lock.json")
 
 	err := Install(InstallOptions{
-		Owner:      "owner",
-		Repo:       "repo",
-		Path:       "",
-		Ref:        "abc123",
-		Pinned:     false,
-		BaseURL:    srv.URL,
-		Dirs:       []string{installDir},
-		LockPath:   lockPath,
+		Owner:    "owner",
+		Repo:     "repo",
+		Path:     "",
+		Ref:      "abc123",
+		Pinned:   false,
+		BaseURL:  srv.URL,
+		Dirs:     []string{installDir},
+		LockPath: lockPath,
 	})
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
@@ -138,12 +138,12 @@ func TestInstall_FailsWithoutSkillMd(t *testing.T) {
 	lockPath := filepath.Join(t.TempDir(), "skills-lock.json")
 
 	err := Install(InstallOptions{
-		Owner:   "owner",
-		Repo:    "repo",
-		Path:    "",
-		Ref:     "abc123",
-		BaseURL: srv.URL,
-		Dirs:    []string{installDir},
+		Owner:    "owner",
+		Repo:     "repo",
+		Path:     "",
+		Ref:      "abc123",
+		BaseURL:  srv.URL,
+		Dirs:     []string{installDir},
 		LockPath: lockPath,
 	})
 	if err == nil {

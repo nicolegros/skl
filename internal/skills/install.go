@@ -191,9 +191,13 @@ func extractTarball(r io.Reader, dest string) error {
 		target := filepath.Join(dest, hdr.Name)
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			os.MkdirAll(target, 0o755)
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
 		case tar.TypeReg:
-			os.MkdirAll(filepath.Dir(target), 0o755)
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
 			f, err := os.Create(target)
 			if err != nil {
 				return err
