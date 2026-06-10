@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/nicolegros/skl/internal/config"
@@ -32,7 +31,7 @@ func newInstall() *cobra.Command {
 			}
 
 			lockPath := filepath.Join(config.Dir(), "skl.lock")
-			token := os.Getenv("GITHUB_TOKEN")
+			token := github.Token()
 
 			if len(args) == 0 {
 				return skills.InstallFromLock(lockPath, "https://api.github.com", token, dirs, func(format string, a ...any) {
