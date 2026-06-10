@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/nicolegros/skl/internal/config"
+	"github.com/nicolegros/skl/internal/github"
 	"github.com/nicolegros/skl/internal/skills"
 	"github.com/spf13/cobra"
 )
@@ -38,7 +39,7 @@ func newUpdate() *cobra.Command {
 				BaseURL:  "https://api.github.com",
 				Dirs:     dirs,
 				LockPath: lockPath,
-				Token:    os.Getenv("GITHUB_TOKEN"),
+				Token:    github.Token(),
 			})
 			if err != nil {
 				return err
