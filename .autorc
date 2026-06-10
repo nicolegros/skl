@@ -1,0 +1,6 @@
+{
+  "plugins": ["conventional-commits", "goreleaser"],
+  "owner": "nicolaslegros",
+  "repo": "skills",
+  "noChangelog": true
+}
