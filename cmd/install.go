@@ -16,9 +16,10 @@ func newInstall() *cobra.Command {
 	var all bool
 
 	cmd := &cobra.Command{
-		Use:   "install [owner/repo or URL] [path]",
-		Short: "Install a skill from a GitHub repository, or all missing skills from lock file",
-		Args:  cobra.RangeArgs(0, 2),
+		Use:     "install [owner/repo or URL] [path]",
+		Aliases: []string{"i"},
+		Short:   "Install a skill from a GitHub repository, or all missing skills from lock file",
+		Args:    cobra.RangeArgs(0, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
