@@ -41,6 +41,9 @@ func fetchAndExtract(baseURL, owner, repo, ref, token string) (extractedRoot, re
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusNotFound && token == "" {
+			return "", "", nil, fmt.Errorf("GitHub returned 404: repository not found (if private, set GITHUB_TOKEN environment variable)")
+		}
 		return "", "", nil, fmt.Errorf("GitHub returned %d", resp.StatusCode)
 	}
 
