@@ -6,8 +6,10 @@ import (
 	"github.com/nicolegros/skl/cmd"
 )
 
+var version = "dev"
+
 func main() {
-	if err := cmd.NewRoot().Execute(); err != nil {
+	if err := cmd.NewRoot(version).Execute(); err != nil {
 		os.Exit(1)
 	}
 }

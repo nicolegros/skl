@@ -1,0 +1,19 @@
+version: 2
+
+builds:
+  - ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+
+release:
+  github:
+    owner: nicolegros
+    name: skills
