@@ -11,7 +11,8 @@ import (
 
 func newList() *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
+		Use:     "list",
+		Aliases: []string{"ls"},
 		Short: "List installed skills",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
