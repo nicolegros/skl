@@ -1,6 +1,6 @@
 # skl
 
-A CLI tool to manage agent skill installations from GitHub repositories.
+Install, update, and remove AI agent skills from GitHub repositories — across multiple providers at once.
 
 ## Install
 
