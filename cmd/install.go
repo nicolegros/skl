@@ -62,17 +62,17 @@ func newInstall() *cobra.Command {
 			}
 
 			if all {
-				if err := skills.InstallAll(opts); err != nil {
+				names, err := skills.InstallAll(opts)
+				if err != nil {
 					return err
 				}
-				fmt.Println("Installed all skills from", args[0])
+				for _, name := range names {
+					fmt.Printf("Installed %s from %s\n", name, args[0])
+				}
 			} else {
-				if err := skills.Install(opts); err != nil {
+				name, err := skills.Install(opts)
+				if err != nil {
 					return err
-				}
-				name := repo
-				if path != "" {
-					name = filepath.Base(path)
 				}
 				fmt.Printf("Installed %s from %s\n", name, args[0])
 			}

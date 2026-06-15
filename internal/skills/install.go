@@ -79,10 +79,11 @@ func fetchAndExtract(baseURL, owner, repo, ref, token string) (extractedRoot, re
 }
 
 // Install fetches a skill from GitHub and installs it into all configured directories.
-func Install(opts InstallOptions) error {
+// Returns the installed skill name.
+func Install(opts InstallOptions) (string, error) {
 	extractedRoot, resolvedRef, cleanup, err := fetchAndExtract(opts.BaseURL, opts.Owner, opts.Repo, opts.Ref, opts.Token)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer cleanup()
 
@@ -94,20 +95,20 @@ func Install(opts InstallOptions) error {
 	}
 
 	if _, err := os.Stat(filepath.Join(srcDir, "SKILL.md")); os.IsNotExist(err) {
-		return fmt.Errorf("no SKILL.md found in %s", opts.Path)
+		return "", fmt.Errorf("no SKILL.md found in %s", opts.Path)
 	}
 
 	for _, dir := range opts.Dirs {
 		dest := filepath.Join(dir, skillName)
 		os.RemoveAll(dest)
 		if err := copyDir(srcDir, dest); err != nil {
-			return fmt.Errorf("copying to %s: %w", dir, err)
+			return "", fmt.Errorf("copying to %s: %w", dir, err)
 		}
 	}
 
 	lf, err := lock.Load(opts.LockPath)
 	if err != nil {
-		return err
+		return "", err
 	}
 	lf.Add(lock.Skill{
 		Name:   skillName,
@@ -116,37 +117,39 @@ func Install(opts InstallOptions) error {
 		Ref:    resolvedRef,
 		Pinned: opts.Pinned,
 	})
-	return lock.Save(lf, opts.LockPath)
+	return skillName, lock.Save(lf, opts.LockPath)
 }
 
 // InstallAll fetches all skills from a repo using --all flag.
-func InstallAll(opts InstallOptions) error {
+// Returns the list of installed skill names.
+func InstallAll(opts InstallOptions) ([]string, error) {
 	extractedRoot, resolvedRef, cleanup, err := fetchAndExtract(opts.BaseURL, opts.Owner, opts.Repo, opts.Ref, opts.Token)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer cleanup()
 
 	discovered, err := Discover(extractedRoot)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(discovered) == 0 {
-		return fmt.Errorf("no skills found in %s/%s", opts.Owner, opts.Repo)
+		return nil, fmt.Errorf("no skills found in %s/%s", opts.Owner, opts.Repo)
 	}
 
 	lf, err := lock.Load(opts.LockPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	var names []string
 	for _, skill := range discovered {
 		srcDir := filepath.Join(extractedRoot, skill.Path)
 		for _, dir := range opts.Dirs {
 			dest := filepath.Join(dir, skill.Name)
 			os.RemoveAll(dest)
 			if err := copyDir(srcDir, dest); err != nil {
-				return fmt.Errorf("copying %s: %w", skill.Name, err)
+				return nil, fmt.Errorf("copying %s: %w", skill.Name, err)
 			}
 		}
 		path := skill.Path
@@ -160,9 +163,10 @@ func InstallAll(opts InstallOptions) error {
 			Ref:    resolvedRef,
 			Pinned: opts.Pinned,
 		})
+		names = append(names, skill.Name)
 	}
 
-	return lock.Save(lf, opts.LockPath)
+	return names, lock.Save(lf, opts.LockPath)
 }
 
 // InstallFromLock installs all skills from the lock file that are missing from disk.
@@ -182,7 +186,7 @@ func InstallFromLock(lockPath, baseURL, token string, dirs []string, logf func(s
 		}
 		logf("Installing %s from %s@%s", s.Name, s.Repo, s.Ref)
 		parts := strings.SplitN(s.Repo, "/", 2)
-		err := Install(InstallOptions{
+		_, err := Install(InstallOptions{
 			Owner:    parts[0],
 			Repo:     parts[1],
 			Path:     s.Path,

@@ -46,7 +46,7 @@ func TestInstall_SingleSkillRepo(t *testing.T) {
 	installDir := t.TempDir()
 	lockPath := filepath.Join(t.TempDir(), "skl.lock")
 
-	err := Install(InstallOptions{
+	name, err := Install(InstallOptions{
 		Owner:    "owner",
 		Repo:     "repo",
 		Path:     "",
@@ -58,6 +58,9 @@ func TestInstall_SingleSkillRepo(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
+	}
+	if name != "repo" {
+		t.Errorf("Install() name = %q, want %q", name, "repo")
 	}
 
 	// Verify skill was copied
@@ -97,7 +100,7 @@ func TestInstall_SubdirectorySkill(t *testing.T) {
 	installDir := t.TempDir()
 	lockPath := filepath.Join(t.TempDir(), "skl.lock")
 
-	err := Install(InstallOptions{
+	name, err := Install(InstallOptions{
 		Owner:    "owner",
 		Repo:     "repo",
 		Path:     "grill-me",
@@ -109,6 +112,9 @@ func TestInstall_SubdirectorySkill(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
+	}
+	if name != "grill-me" {
+		t.Errorf("Install() name = %q, want %q", name, "grill-me")
 	}
 
 	// Only grill-me should be installed
@@ -233,7 +239,7 @@ func TestInstall_FailsWithoutSkillMd(t *testing.T) {
 	installDir := t.TempDir()
 	lockPath := filepath.Join(t.TempDir(), "skl.lock")
 
-	err := Install(InstallOptions{
+	_, err := Install(InstallOptions{
 		Owner:    "owner",
 		Repo:     "repo",
 		Path:     "",
