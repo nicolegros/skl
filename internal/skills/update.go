@@ -44,7 +44,7 @@ func Update(opts UpdateOptions) (*UpdateResult, error) {
 			return nil, fmt.Errorf("invalid repo in lock: %s", skill.Repo)
 		}
 
-		err := Install(InstallOptions{
+		_, err := Install(InstallOptions{
 			Owner:    parts[0],
 			Repo:     parts[1],
 			Path:     skill.Path,
