@@ -55,3 +55,38 @@ func TestRemove_ErrorsOnUnknownSkill(t *testing.T) {
 		t.Fatal("Remove() should error for unknown skill")
 	}
 }
+
+func TestRemove_ByAlias_DeletesFromDirsAndLock(t *testing.T) {
+	installDir := t.TempDir()
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
+
+	// Pre-populate: skill installed under alias "interview-me"
+	os.MkdirAll(filepath.Join(installDir, "interview-me"), 0o755)
+	os.WriteFile(filepath.Join(installDir, "interview-me", "SKILL.md"), []byte("# Interview Me"), 0o644)
+
+	lf := &lock.File{Skills: []lock.Skill{
+		{Name: "grill-me", Repo: "owner/repo", Path: "grill-me", Ref: "abc", Alias: "interview-me"},
+	}}
+	lock.Save(lf, lockPath)
+
+	// Remove by alias name
+	err := Remove(RemoveOptions{
+		Name:     "interview-me",
+		Dirs:     []string{installDir},
+		LockPath: lockPath,
+	})
+	if err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+
+	// Directory should be gone
+	if _, err := os.Stat(filepath.Join(installDir, "interview-me")); !os.IsNotExist(err) {
+		t.Error("interview-me directory still exists")
+	}
+
+	// Lock should be empty
+	loaded, _ := lock.Load(lockPath)
+	if len(loaded.Skills) != 0 {
+		t.Errorf("lock still has %d skills", len(loaded.Skills))
+	}
+}

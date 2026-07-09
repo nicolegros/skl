@@ -30,7 +30,7 @@ func Update(opts UpdateOptions) (*UpdateResult, error) {
 	result := &UpdateResult{}
 
 	for _, skill := range lf.Skills {
-		if opts.Name != "" && skill.Name != opts.Name {
+		if opts.Name != "" && skill.Name != opts.Name && skill.Alias != opts.Name {
 			continue
 		}
 
@@ -50,6 +50,7 @@ func Update(opts UpdateOptions) (*UpdateResult, error) {
 			Path:     skill.Path,
 			Ref:      "", // latest
 			Pinned:   skill.Pinned,
+			Alias:    skill.Alias,
 			BaseURL:  opts.BaseURL,
 			Dirs:     opts.Dirs,
 			LockPath: opts.LockPath,
