@@ -84,7 +84,10 @@ func newInstall() *cobra.Command {
 				for _, skipped := range result.Skipped {
 					if promptForModifications(skipped.Name, skipped.Modifications) {
 						singleOpts := opts
-						singleOpts.Path = skipped.Name
+						singleOpts.Path = skipped.Path
+						if singleOpts.Path == "." {
+							singleOpts.Path = ""
+						}
 						singleOpts.Force = true
 						singleResult, err := skills.Install(singleOpts)
 						if err != nil {

@@ -85,6 +85,7 @@ func fetchAndExtract(baseURL, owner, repo, ref, token string) (extractedRoot, re
 // InstallResult contains the outcome of an install operation.
 type InstallResult struct {
 	Name          string
+	Path          string         // repo-relative path (for retry after skipping)
 	Modifications []Modification // non-nil when local modifications detected and Force=false
 }
 
@@ -227,6 +228,7 @@ func InstallAll(opts InstallOptions) (*InstallAllResult, error) {
 					if len(mods) > 0 {
 						result.Skipped = append(result.Skipped, InstallResult{
 							Name:          skill.Name,
+							Path:          skill.Path,
 							Modifications: mods,
 						})
 						goto nextSkill
