@@ -54,6 +54,9 @@ skl install owner/repo grill-me --as interview-me
 
 # Install all skills from a repo
 skl install owner/repo --all
+
+# Force overwrite local modifications without prompting
+skl install owner/repo --force
 ```
 
 The `--as` flag installs the skill under a custom name. The skill's `SKILL.md` frontmatter `name:` field and internal path references are patched to match. `--as` and `--all` are mutually exclusive.
@@ -66,6 +69,9 @@ skl update
 
 # Update a specific skill
 skl update grill-me
+
+# Force overwrite local modifications without prompting
+skl update --force
 ```
 
 Pinned skills will warn before updating and remain pinned to the new SHA.
@@ -93,4 +99,13 @@ skl install owner/private-repo
 
 ## Lock file
 
-Installed skills are tracked in `~/.config/skl/skl.lock`. This file records the source repo, subdirectory path, resolved commit SHA, whether the skill is pinned, and the alias (if installed with `--as`).
+Installed skills are tracked in `~/.config/skl/skl.lock`. This file records the source repo, subdirectory path, resolved commit SHA, whether the skill is pinned, the alias (if installed with `--as`), and SHA-256 checksums of each installed file.
+
+The checksums are used to detect local modifications. When you install or update a skill that has been modified locally, `skl` will prompt you to:
+
+- **[d]iff** — view the local version of modified files
+- **[b]ackup & overwrite** — save the current version to a `.bak` directory, then overwrite
+- **[o]verwrite** — overwrite without backup
+- **[s]kip** — leave the skill unchanged
+
+Use `--force` on `install` or `update` to skip this prompt and overwrite immediately.
