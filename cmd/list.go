@@ -28,12 +28,20 @@ func newList() *cobra.Command {
 				return nil
 			}
 
+			// Compute dynamic column width from longest name.
+			maxName := 0
+			for _, e := range entries {
+				if len(e.DisplayName) > maxName {
+					maxName = len(e.DisplayName)
+				}
+			}
+
 			for _, e := range entries {
 				pin := ""
 				if e.Pinned {
 					pin = " (pinned)"
 				}
-				fmt.Printf("%-20s %s@%s%s\n", e.DisplayName, e.Source, e.Ref[:min(7, len(e.Ref))], pin)
+				fmt.Printf("%-*s   %s@%s%s\n", maxName, e.DisplayName, e.Source, e.Ref[:min(7, len(e.Ref))], pin)
 			}
 			return nil
 		},
