@@ -114,7 +114,7 @@ func TestUpdate_WarnsOnPinnedButStillUpdates(t *testing.T) {
 
 func TestUpdate_ByAlias_FetchesAndRepatches(t *testing.T) {
 	tarballV2 := makeTarball(t, "owner-repo-def456", map[string]string{
-		"grill-me/SKILL.md": "---\nname: grill-me\n---\n# Grill Me v2\nSee /grill-me/helpers.sh",
+		"grill-me/SKILL.md":   "---\nname: grill-me\n---\n# Grill Me v2\nSee /grill-me/helpers.sh",
 		"grill-me/helpers.sh": "#!/bin/bash\n# v2",
 	})
 

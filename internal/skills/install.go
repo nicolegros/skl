@@ -309,7 +309,7 @@ func extractTarball(r io.Reader, dest string) error {
 func replacePathRefs(dir, oldName, newName string) {
 	oldRef := "/" + oldName
 	newRef := "/" + newName
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
 		}
@@ -320,7 +320,7 @@ func replacePathRefs(dir, oldName, newName string) {
 		content := string(data)
 		if strings.Contains(content, oldRef) {
 			content = strings.ReplaceAll(content, oldRef, newRef)
-			os.WriteFile(path, []byte(content), info.Mode())
+			_ = os.WriteFile(path, []byte(content), info.Mode())
 		}
 		return nil
 	})
@@ -355,7 +355,7 @@ func patchFrontmatterName(dir, oldName, newName string) bool {
 	}
 
 	if found {
-		os.WriteFile(skillMd, []byte(strings.Join(lines, "\n")), 0o644)
+		_ = os.WriteFile(skillMd, []byte(strings.Join(lines, "\n")), 0o644)
 	}
 	return found
 }

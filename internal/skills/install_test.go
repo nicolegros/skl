@@ -328,7 +328,7 @@ func TestInstall_WithAlias_PatchesFrontmatterName(t *testing.T) {
 
 func TestInstall_WithAlias_ReplacesPathReferences(t *testing.T) {
 	tarball := makeTarball(t, "owner-repo-abc123", map[string]string{
-		"grill-me/SKILL.md": "---\nname: grill-me\n---\n# Grill Me\nSee /grill-me/helpers.sh for details",
+		"grill-me/SKILL.md":   "---\nname: grill-me\n---\n# Grill Me\nSee /grill-me/helpers.sh for details",
 		"grill-me/helpers.sh": "#!/bin/bash\n# Source: /grill-me/lib.sh",
 	})
 

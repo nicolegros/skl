@@ -30,8 +30,8 @@ func List(opts ListOptions) ([]ListEntry, error) {
 		entry := ListEntry{
 			DisplayName: s.Name,
 			Source:      s.Repo,
-			Ref:        s.Ref,
-			Pinned:     s.Pinned,
+			Ref:         s.Ref,
+			Pinned:      s.Pinned,
 		}
 		if s.Alias != "" {
 			entry.DisplayName = fmt.Sprintf("%s (%s)", s.Alias, s.Name)
