@@ -108,6 +108,9 @@ func newInstall() *cobra.Command {
 					if opts.Path != "" {
 						skillName = filepath.Base(opts.Path)
 					}
+					if opts.Alias != "" {
+						skillName = opts.Alias
+					}
 					if promptForModifications(skillName, result.Modifications) {
 						opts.Force = true
 						result, err = skills.Install(opts)

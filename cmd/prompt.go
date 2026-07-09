@@ -36,7 +36,9 @@ func promptForModifications(skillName string, mods []skills.Modification) bool {
 			showDiffs(skillName, mods)
 		case "b", "backup":
 			for _, m := range mods {
-				bakPath, err := skills.Backup(m.Dir, skillName)
+				// Derive the skill directory name from the full SkillDir path
+				dirName := filepath.Base(m.SkillDir)
+				bakPath, err := skills.Backup(m.Dir, dirName)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "  Error backing up: %v\n", err)
 					return false
@@ -57,10 +59,9 @@ func promptForModifications(skillName string, mods []skills.Modification) bool {
 // showDiffs prints the contents of locally modified files.
 func showDiffs(skillName string, mods []skills.Modification) {
 	for _, m := range mods {
-		skillDir := filepath.Join(m.Dir, skillName)
-		fmt.Fprintf(os.Stderr, "\n  Directory: %s\n", m.Dir)
+		fmt.Fprintf(os.Stderr, "\n  Directory: %s\n", m.SkillDir)
 		for _, file := range m.ModifiedFiles {
-			filePath := filepath.Join(skillDir, file)
+			filePath := filepath.Join(m.SkillDir, file)
 			data, err := os.ReadFile(filePath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "\n  --- %s (deleted from disk)\n", file)

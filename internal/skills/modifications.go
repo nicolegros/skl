@@ -11,7 +11,8 @@ import (
 
 // Modification represents local changes detected in one directory.
 type Modification struct {
-	Dir           string
+	Dir           string   // parent directory (e.g., ~/.kiro/skills)
+	SkillDir      string   // full path to the skill directory on disk
 	ModifiedFiles []string
 }
 
@@ -88,7 +89,7 @@ func CheckModifications(skillName string, dirs []string, checksums map[string]st
 
 		if len(modified) > 0 {
 			sort.Strings(modified)
-			mods = append(mods, Modification{Dir: dir, ModifiedFiles: modified})
+			mods = append(mods, Modification{Dir: dir, SkillDir: skillDir, ModifiedFiles: modified})
 		}
 	}
 
