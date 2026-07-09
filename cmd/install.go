@@ -82,7 +82,11 @@ func newInstall() *cobra.Command {
 					fmt.Printf("Installed %s from %s\n", name, args[0])
 				}
 				for _, skipped := range result.Skipped {
-					if promptForModifications(skipped.Name, skipped.Modifications) {
+					if promptForModifications(skipped.Name, skipped.Modifications, promptContext{
+						BaseURL:  "https://api.github.com",
+						Token:    token,
+						LockPath: lockPath,
+					}) {
 						singleOpts := opts
 						singleOpts.Path = skipped.Path
 						if singleOpts.Path == "." {
@@ -111,7 +115,11 @@ func newInstall() *cobra.Command {
 					if opts.Alias != "" {
 						skillName = opts.Alias
 					}
-					if promptForModifications(skillName, result.Modifications) {
+					if promptForModifications(skillName, result.Modifications, promptContext{
+						BaseURL:  "https://api.github.com",
+						Token:    token,
+						LockPath: lockPath,
+					}) {
 						opts.Force = true
 						result, err = skills.Install(opts)
 						if err != nil {

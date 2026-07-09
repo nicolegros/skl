@@ -110,3 +110,29 @@ func Backup(dir, skillName string) (string, error) {
 	}
 	return dst, nil
 }
+
+// FetchOriginalFiles fetches the upstream version of a skill at a given ref and returns
+// a map of relative file path → content for the specified files.
+func FetchOriginalFiles(baseURL, owner, repo, path, ref, token string, files []string) (map[string]string, error) {
+	extractedRoot, _, cleanup, err := fetchAndExtract(baseURL, owner, repo, ref, token)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	srcDir := extractedRoot
+	if path != "" {
+		srcDir = filepath.Join(extractedRoot, path)
+	}
+
+	contents := make(map[string]string)
+	for _, f := range files {
+		data, err := os.ReadFile(filepath.Join(srcDir, f))
+		if err != nil {
+			// File didn't exist in original (was added locally)
+			continue
+		}
+		contents[f] = string(data)
+	}
+	return contents, nil
+}

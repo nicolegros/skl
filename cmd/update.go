@@ -52,7 +52,11 @@ func newUpdate() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 			}
 			for _, m := range result.Modifications {
-				if promptForModifications(m.SkillName, m.Dirs) {
+				if promptForModifications(m.SkillName, m.Dirs, promptContext{
+					BaseURL:  "https://api.github.com",
+					Token:    github.Token(),
+					LockPath: lockPath,
+				}) {
 					// User chose to proceed — re-run update with force for this skill
 					_, err := skills.Update(skills.UpdateOptions{
 						Name:     m.SkillName,
