@@ -60,8 +60,8 @@ func TestInstall_SingleSkillRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if name != "repo" {
-		t.Errorf("Install() name = %q, want %q", name, "repo")
+	if name.Name != "repo" {
+		t.Errorf("Install() name = %q, want %q", name.Name, "repo")
 	}
 
 	// Verify skill was copied
@@ -114,8 +114,8 @@ func TestInstall_SubdirectorySkill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if name != "grill-me" {
-		t.Errorf("Install() name = %q, want %q", name, "grill-me")
+	if name.Name != "grill-me" {
+		t.Errorf("Install() name = %q, want %q", name.Name, "grill-me")
 	}
 
 	// Only grill-me should be installed
@@ -240,7 +240,7 @@ func TestInstall_WithAlias_InstallsUnderAliasName(t *testing.T) {
 	installDir := t.TempDir()
 	lockPath := filepath.Join(t.TempDir(), "skl.lock")
 
-	name, err := Install(InstallOptions{
+	result, err := Install(InstallOptions{
 		Owner:    "owner",
 		Repo:     "repo",
 		Path:     "grill-me",
@@ -253,8 +253,8 @@ func TestInstall_WithAlias_InstallsUnderAliasName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if name != "interview-me" {
-		t.Errorf("Install() name = %q, want %q", name, "interview-me")
+	if result.Name != "interview-me" {
+		t.Errorf("Install() name = %q, want %q", result.Name, "interview-me")
 	}
 
 	// Directory should be named after alias
@@ -520,5 +520,228 @@ func TestInstall_FailsWithoutSkillMd(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Install() should error when SKILL.md is missing")
+	}
+}
+
+func TestInstall_StoresFileChecksumsInLock(t *testing.T) {
+	tarball := makeTarball(t, "owner-repo-abc123", map[string]string{
+		"SKILL.md":  "# My Skill",
+		"prompt.md": "You are a helpful assistant.",
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(tarball)
+	}))
+	defer srv.Close()
+
+	installDir := t.TempDir()
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
+
+	_, err := Install(InstallOptions{
+		Owner:    "owner",
+		Repo:     "repo",
+		Path:     "",
+		Ref:      "abc123",
+		Pinned:   false,
+		BaseURL:  srv.URL,
+		Dirs:     []string{installDir},
+		LockPath: lockPath,
+	})
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+
+	lf, _ := lock.Load(lockPath)
+	if len(lf.Skills) != 1 {
+		t.Fatalf("lock has %d skills, want 1", len(lf.Skills))
+	}
+
+	skill := lf.Skills[0]
+	if skill.Files == nil {
+		t.Fatal("expected Files map in lock entry, got nil")
+	}
+	if len(skill.Files) != 2 {
+		t.Fatalf("expected 2 file checksums, got %d", len(skill.Files))
+	}
+	if _, ok := skill.Files["SKILL.md"]; !ok {
+		t.Error("expected checksum for SKILL.md")
+	}
+	if _, ok := skill.Files["prompt.md"]; !ok {
+		t.Error("expected checksum for prompt.md")
+	}
+
+	// Checksums should be sha256 hex strings (64 chars)
+	for name, hash := range skill.Files {
+		if len(hash) != 64 {
+			t.Errorf("checksum for %s has length %d, want 64 (sha256 hex)", name, len(hash))
+		}
+	}
+}
+
+func TestInstall_DetectsModificationsAndReturnsResult(t *testing.T) {
+	tarball := makeTarball(t, "owner-repo-abc123", map[string]string{
+		"SKILL.md": "# New version",
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(tarball)
+	}))
+	defer srv.Close()
+
+	installDir := t.TempDir()
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
+
+	// Pre-install with checksums (simulating a previous install)
+	os.MkdirAll(filepath.Join(installDir, "repo"), 0o755)
+	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), []byte("# Original"), 0o644)
+	checksums, _ := computeChecksums(filepath.Join(installDir, "repo"))
+
+	lf := &lock.File{Skills: []lock.Skill{
+		{Name: "repo", Repo: "owner/repo", Path: "", Ref: "old123", Pinned: false, Files: checksums},
+	}}
+	lock.Save(lf, lockPath)
+
+	// User modifies the file
+	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), []byte("# My custom changes"), 0o644)
+
+	result, err := Install(InstallOptions{
+		Owner:    "owner",
+		Repo:     "repo",
+		Path:     "",
+		Ref:      "abc123",
+		Pinned:   false,
+		BaseURL:  srv.URL,
+		Dirs:     []string{installDir},
+		LockPath: lockPath,
+		Force:    false,
+	})
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+
+	// Should return empty name (not installed)
+	if result.Name != "" {
+		t.Errorf("expected empty name, got %q", result.Name)
+	}
+
+	// Should report modifications
+	if len(result.Modifications) != 1 {
+		t.Fatalf("expected 1 modification, got %d", len(result.Modifications))
+	}
+	if result.Modifications[0].Dir != installDir {
+		t.Errorf("modification dir = %q, want %q", result.Modifications[0].Dir, installDir)
+	}
+
+	// File should NOT be overwritten
+	data, _ := os.ReadFile(filepath.Join(installDir, "repo", "SKILL.md"))
+	if string(data) != "# My custom changes" {
+		t.Errorf("file was overwritten! got: %s", data)
+	}
+}
+
+func TestInstall_ForceOverwritesModifiedSkill(t *testing.T) {
+	tarball := makeTarball(t, "owner-repo-abc123", map[string]string{
+		"SKILL.md": "# New version",
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(tarball)
+	}))
+	defer srv.Close()
+
+	installDir := t.TempDir()
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
+
+	// Pre-install with checksums
+	os.MkdirAll(filepath.Join(installDir, "repo"), 0o755)
+	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), []byte("# Original"), 0o644)
+	checksums, _ := computeChecksums(filepath.Join(installDir, "repo"))
+
+	lf := &lock.File{Skills: []lock.Skill{
+		{Name: "repo", Repo: "owner/repo", Path: "", Ref: "old123", Pinned: false, Files: checksums},
+	}}
+	lock.Save(lf, lockPath)
+
+	// User modifies
+	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), []byte("# My custom changes"), 0o644)
+
+	result, err := Install(InstallOptions{
+		Owner:    "owner",
+		Repo:     "repo",
+		Path:     "",
+		Ref:      "abc123",
+		Pinned:   false,
+		BaseURL:  srv.URL,
+		Dirs:     []string{installDir},
+		LockPath: lockPath,
+		Force:    true,
+	})
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+
+	// Should install successfully
+	if result.Name != "repo" {
+		t.Errorf("name = %q, want %q", result.Name, "repo")
+	}
+
+	// File should be the new version
+	data, _ := os.ReadFile(filepath.Join(installDir, "repo", "SKILL.md"))
+	if string(data) != "# New version" {
+		t.Errorf("file not updated, got: %s", data)
+	}
+}
+
+func TestInstall_DetectsModificationsWithAlias(t *testing.T) {
+	tarball := makeTarball(t, "owner-repo-abc123", map[string]string{
+		"grill-me/SKILL.md": "---\nname: grill-me\n---\n# New version",
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(tarball)
+	}))
+	defer srv.Close()
+
+	installDir := t.TempDir()
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
+
+	// Simulate a previous install with --as interview-me
+	os.MkdirAll(filepath.Join(installDir, "interview-me"), 0o755)
+	os.WriteFile(filepath.Join(installDir, "interview-me", "SKILL.md"), []byte("---\nname: interview-me\n---\n# Original"), 0o644)
+	checksums, _ := computeChecksums(filepath.Join(installDir, "interview-me"))
+
+	lf := &lock.File{Skills: []lock.Skill{
+		{Name: "grill-me", Repo: "owner/repo", Path: "grill-me", Ref: "old123", Pinned: false, Alias: "interview-me", Files: checksums},
+	}}
+	lock.Save(lf, lockPath)
+
+	// User modifies the aliased skill
+	os.WriteFile(filepath.Join(installDir, "interview-me", "SKILL.md"), []byte("---\nname: interview-me\n---\n# My custom changes"), 0o644)
+
+	result, err := Install(InstallOptions{
+		Owner:    "owner",
+		Repo:     "repo",
+		Path:     "grill-me",
+		Ref:      "abc123",
+		Pinned:   false,
+		BaseURL:  srv.URL,
+		Dirs:     []string{installDir},
+		LockPath: lockPath,
+		Alias:    "interview-me",
+		Force:    false,
+	})
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+
+	// Should detect modifications and NOT overwrite
+	if len(result.Modifications) == 0 {
+		t.Fatal("expected modifications to be detected for aliased skill")
+	}
+
+	// File should still be the user's version
+	data, _ := os.ReadFile(filepath.Join(installDir, "interview-me", "SKILL.md"))
+	if !strings.Contains(string(data), "My custom changes") {
+		t.Errorf("file was overwritten! got: %s", data)
 	}
 }

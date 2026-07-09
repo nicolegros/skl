@@ -7,12 +7,13 @@ import (
 )
 
 type Skill struct {
-	Name   string `json:"name"`
-	Repo   string `json:"repo"`
-	Path   string `json:"path"`
-	Ref    string `json:"ref"`
-	Pinned bool   `json:"pinned"`
-	Alias  string `json:"alias,omitempty"`
+	Name   string            `json:"name"`
+	Repo   string            `json:"repo"`
+	Path   string            `json:"path"`
+	Ref    string            `json:"ref"`
+	Pinned bool              `json:"pinned"`
+	Alias  string            `json:"alias,omitempty"`
+	Files  map[string]string `json:"files,omitempty"`
 }
 
 type File struct {

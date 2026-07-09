@@ -13,11 +13,19 @@ type UpdateOptions struct {
 	Dirs     []string
 	LockPath string
 	Token    string
+	Force    bool
+}
+
+// SkillModification represents a skill that has local modifications in one or more directories.
+type SkillModification struct {
+	SkillName string
+	Dirs      []Modification
 }
 
 type UpdateResult struct {
-	Updated  []string
-	Warnings []string
+	Updated       []string
+	Warnings      []string
+	Modifications []SkillModification
 }
 
 // Update refreshes installed skills from their upstream repos.
@@ -38,6 +46,26 @@ func Update(opts UpdateOptions) (*UpdateResult, error) {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("%q is pinned (was at %s), updating anyway", skill.Name, skill.Ref))
 		}
 
+		// Check for local modifications before overwriting
+		if !opts.Force && skill.Files != nil {
+			diskName := skill.Name
+			if skill.Alias != "" {
+				diskName = skill.Alias
+			}
+			mods := CheckModifications(diskName, opts.Dirs, skill.Files)
+			if len(mods) > 0 {
+				displayName := skill.Name
+				if skill.Alias != "" {
+					displayName = skill.Alias
+				}
+				result.Modifications = append(result.Modifications, SkillModification{
+					SkillName: displayName,
+					Dirs:      mods,
+				})
+				continue
+			}
+		}
+
 		// Parse owner/repo from lock entry
 		parts := strings.SplitN(skill.Repo, "/", 2)
 		if len(parts) != 2 {
@@ -55,6 +83,7 @@ func Update(opts UpdateOptions) (*UpdateResult, error) {
 			Dirs:     opts.Dirs,
 			LockPath: opts.LockPath,
 			Token:    opts.Token,
+			Force:    true, // already checked modifications at this level
 		})
 		if err != nil {
 			return nil, fmt.Errorf("updating %s: %w", skill.Name, err)
