@@ -119,7 +119,7 @@ func showDiffs(skillName string, mods []skills.Modification, ctx promptContext) 
 				fmt.Fprintf(os.Stderr, "  Error: %v\n", err)
 				continue
 			}
-			tmpOrig.WriteString(original)
+			_, _ = tmpOrig.WriteString(original)
 			tmpOrig.Close()
 
 			// Write local to a temp file (or /dev/null if deleted)
@@ -130,7 +130,7 @@ func showDiffs(skillName string, mods []skills.Modification, ctx promptContext) 
 				continue
 			}
 			if localErr == nil {
-				tmpLocal.Write(localData)
+				_, _ = tmpLocal.Write(localData)
 			}
 			tmpLocal.Close()
 
