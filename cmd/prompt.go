@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -104,102 +105,53 @@ func showDiffs(skillName string, mods []skills.Modification, ctx promptContext) 
 		fmt.Fprintf(os.Stderr, "\n")
 		for _, file := range m.ModifiedFiles {
 			localPath := filepath.Join(m.SkillDir, file)
-			localData, localErr := os.ReadFile(localPath)
+
 			original := originals[file]
+			localData, localErr := os.ReadFile(localPath)
 
-			if localErr != nil {
-				// File deleted locally
-				fmt.Fprintf(os.Stderr, "  --- a/%s\n  +++ /dev/null\n", file)
-				for _, line := range strings.Split(original, "\n") {
-					fmt.Fprintf(os.Stderr, "  -%s\n", line)
-				}
-			} else if original == "" {
-				// File added locally (not in original)
-				fmt.Fprintf(os.Stderr, "  --- /dev/null\n  +++ b/%s\n", file)
-				for _, line := range strings.Split(string(localData), "\n") {
-					fmt.Fprintf(os.Stderr, "  +%s\n", line)
-				}
-			} else {
-				// File modified — show unified diff
-				fmt.Fprintf(os.Stderr, "  --- a/%s (upstream @ %s)\n  +++ b/%s (local)\n", file, skill.Ref[:7], file)
-				printUnifiedDiff(original, string(localData))
+			if localErr != nil && original == "" {
+				continue
 			}
-		}
-	}
-}
 
-// printUnifiedDiff prints a simple line-by-line diff between two strings.
-func printUnifiedDiff(original, local string) {
-	origLines := strings.Split(original, "\n")
-	localLines := strings.Split(local, "\n")
-
-	// Simple LCS-based diff
-	diff := computeDiff(origLines, localLines)
-	for _, d := range diff {
-		switch d.op {
-		case diffEqual:
-			fmt.Fprintf(os.Stderr, "   %s\n", d.line)
-		case diffDelete:
-			fmt.Fprintf(os.Stderr, "  -%s\n", d.line)
-		case diffInsert:
-			fmt.Fprintf(os.Stderr, "  +%s\n", d.line)
-		}
-	}
-}
-
-type diffOp int
-
-const (
-	diffEqual  diffOp = iota
-	diffDelete
-	diffInsert
-)
-
-type diffLine struct {
-	op   diffOp
-	line string
-}
-
-// computeDiff produces a minimal diff between two slices of lines using Myers' algorithm (simplified).
-func computeDiff(a, b []string) []diffLine {
-	// Build LCS table
-	m, n := len(a), len(b)
-	dp := make([][]int, m+1)
-	for i := range dp {
-		dp[i] = make([]int, n+1)
-	}
-	for i := 1; i <= m; i++ {
-		for j := 1; j <= n; j++ {
-			if a[i-1] == b[j-1] {
-				dp[i][j] = dp[i-1][j-1] + 1
-			} else if dp[i-1][j] >= dp[i][j-1] {
-				dp[i][j] = dp[i-1][j]
-			} else {
-				dp[i][j] = dp[i][j-1]
+			// Write original to a temp file for diff
+			tmpOrig, err := os.CreateTemp("", "skl-orig-*")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  Error: %v\n", err)
+				continue
 			}
+			tmpOrig.WriteString(original)
+			tmpOrig.Close()
+
+			// Write local to a temp file (or /dev/null if deleted)
+			tmpLocal, err := os.CreateTemp("", "skl-local-*")
+			if err != nil {
+				os.Remove(tmpOrig.Name())
+				fmt.Fprintf(os.Stderr, "  Error: %v\n", err)
+				continue
+			}
+			if localErr == nil {
+				tmpLocal.Write(localData)
+			}
+			tmpLocal.Close()
+
+			labelA := fmt.Sprintf("a/%s (upstream @ %s)", file, skill.Ref[:minInt(7, len(skill.Ref))])
+			labelB := fmt.Sprintf("b/%s (local)", file)
+
+			cmd := exec.Command("diff", "-u", "--label", labelA, "--label", labelB, tmpOrig.Name(), tmpLocal.Name())
+			output, _ := cmd.Output() // diff exits 1 when files differ, that's fine
+			if len(output) > 0 {
+				fmt.Fprintf(os.Stderr, "%s", output)
+			}
+
+			os.Remove(tmpOrig.Name())
+			os.Remove(tmpLocal.Name())
 		}
 	}
+}
 
-	// Backtrack to produce diff
-	var result []diffLine
-	i, j := m, n
-	for i > 0 || j > 0 {
-		if i > 0 && j > 0 && a[i-1] == b[j-1] {
-			result = append(result, diffLine{diffEqual, a[i-1]})
-			i--
-			j--
-		} else if j > 0 && (i == 0 || dp[i][j-1] >= dp[i-1][j]) {
-			result = append(result, diffLine{diffInsert, b[j-1]})
-			j--
-		} else {
-			result = append(result, diffLine{diffDelete, a[i-1]})
-			i--
-		}
+func minInt(a, b int) int {
+	if a < b {
+		return a
 	}
-
-	// Reverse
-	for left, right := 0, len(result)-1; left < right; left, right = left+1, right-1 {
-		result[left], result[right] = result[right], result[left]
-	}
-	return result
+	return b
 }
