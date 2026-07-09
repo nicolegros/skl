@@ -220,6 +220,10 @@ func InstallAll(opts InstallOptions) ([]string, error) {
 				return nil, fmt.Errorf("copying %s: %w", skill.Name, err)
 			}
 		}
+		checksums, err := computeChecksums(srcDir)
+		if err != nil {
+			return nil, fmt.Errorf("computing checksums for %s: %w", skill.Name, err)
+		}
 		path := skill.Path
 		if path == "." {
 			path = ""
@@ -230,6 +234,7 @@ func InstallAll(opts InstallOptions) ([]string, error) {
 			Path:   path,
 			Ref:    resolvedRef,
 			Pinned: opts.Pinned,
+			Files:  checksums,
 		})
 		names = append(names, skill.Name)
 	}

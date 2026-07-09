@@ -3,7 +3,9 @@ package cmd
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/nicolegros/skl/internal/skills"
@@ -23,7 +25,11 @@ func promptForModifications(skillName string, mods []skills.Modification) bool {
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Fprintf(os.Stderr, "\n  [d]iff  [b]ackup & overwrite  [o]verwrite  [s]kip: ")
-		input, _ := reader.ReadString('\n')
+		input, err := reader.ReadString('\n')
+		if err == io.EOF {
+			fmt.Fprintf(os.Stderr, "\n")
+			return false
+		}
 		input = strings.TrimSpace(strings.ToLower(input))
 
 		switch input {
@@ -52,10 +58,10 @@ func promptForModifications(skillName string, mods []skills.Modification) bool {
 // showDiffs prints the contents of locally modified files.
 func showDiffs(skillName string, mods []skills.Modification) {
 	for _, m := range mods {
-		skillDir := fmt.Sprintf("%s/%s", m.Dir, skillName)
+		skillDir := filepath.Join(m.Dir, skillName)
 		fmt.Fprintf(os.Stderr, "\n  Directory: %s\n", m.Dir)
 		for _, file := range m.ModifiedFiles {
-			filePath := fmt.Sprintf("%s/%s", skillDir, file)
+			filePath := filepath.Join(skillDir, file)
 			data, err := os.ReadFile(filePath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "\n  --- %s (deleted from disk)\n", file)
