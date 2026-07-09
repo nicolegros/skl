@@ -370,6 +370,46 @@ func TestInstall_WithAlias_ReplacesPathReferences(t *testing.T) {
 	}
 }
 
+func TestInstall_WithAlias_DoesNotCorruptLongerNames(t *testing.T) {
+	tarball := makeTarball(t, "owner-repo-abc123", map[string]string{
+		"grill-me/SKILL.md": "---\nname: grill-me\n---\n# Grill Me\nSee /grill-me-harder for the advanced version\nBut /grill-me/file.md is ours",
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(tarball)
+	}))
+	defer srv.Close()
+
+	installDir := t.TempDir()
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
+
+	_, err := Install(InstallOptions{
+		Owner:    "owner",
+		Repo:     "repo",
+		Path:     "grill-me",
+		Ref:      "abc123",
+		Alias:    "interview-me",
+		BaseURL:  srv.URL,
+		Dirs:     []string{installDir},
+		LockPath: lockPath,
+	})
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(installDir, "interview-me", "SKILL.md"))
+	content := string(data)
+
+	// Should NOT corrupt /grill-me-harder
+	if !strings.Contains(content, "/grill-me-harder") {
+		t.Errorf("longer name was corrupted, got:\n%s", content)
+	}
+	// Should replace /grill-me/file.md
+	if !strings.Contains(content, "/interview-me/file.md") {
+		t.Errorf("path ref not replaced, got:\n%s", content)
+	}
+}
+
 func TestInstall_WithAlias_WarnsIfNoFrontmatterName(t *testing.T) {
 	tarball := makeTarball(t, "owner-repo-abc123", map[string]string{
 		"grill-me/SKILL.md": "# Grill Me\nNo frontmatter here",

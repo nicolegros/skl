@@ -34,7 +34,7 @@ func List(opts ListOptions) ([]ListEntry, error) {
 			Pinned:      s.Pinned,
 		}
 		if s.Alias != "" {
-			entry.DisplayName = fmt.Sprintf("%s (%s)", s.Alias, s.Name)
+			entry.DisplayName = fmt.Sprintf("%s (%s @ %s)", s.Alias, s.Name, s.Repo)
 			entry.Alias = s.Alias
 		}
 		entries = append(entries, entry)

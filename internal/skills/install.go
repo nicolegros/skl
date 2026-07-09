@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/nicolegros/skl/internal/lock"
@@ -305,10 +306,12 @@ func extractTarball(r io.Reader, dest string) error {
 	return nil
 }
 
-// replacePathRefs replaces /<oldName> with /<newName> in all files under dir.
+// replacePathRefs replaces /<oldName>/ and /<oldName> (at segment boundaries)
+// with /<newName> in all files under dir. Only matches whole path segments to
+// avoid corrupting longer names like /<oldName>-extended.
 func replacePathRefs(dir, oldName, newName string) {
-	oldRef := "/" + oldName
-	newRef := "/" + newName
+	// Match /<oldName> followed by /, whitespace, quote, end-of-line, or end-of-string
+	pattern := regexp.MustCompile(`/` + regexp.QuoteMeta(oldName) + `([/\s"'` + "`" + `\])}\n]|$)`)
 	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
@@ -318,8 +321,8 @@ func replacePathRefs(dir, oldName, newName string) {
 			return nil
 		}
 		content := string(data)
-		if strings.Contains(content, oldRef) {
-			content = strings.ReplaceAll(content, oldRef, newRef)
+		if pattern.MatchString(content) {
+			content = pattern.ReplaceAllString(content, "/"+newName+"${1}")
 			_ = os.WriteFile(path, []byte(content), info.Mode())
 		}
 		return nil

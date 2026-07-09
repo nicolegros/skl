@@ -34,8 +34,8 @@ func TestList_ShowsAliasRelationship(t *testing.T) {
 	}
 
 	// Second entry: has alias, should show relationship
-	if entries[1].DisplayName != "interview-me (grill-me)" {
-		t.Errorf("entries[1].DisplayName = %q, want %q", entries[1].DisplayName, "interview-me (grill-me)")
+	if entries[1].DisplayName != "interview-me (grill-me @ owner/repo)" {
+		t.Errorf("entries[1].DisplayName = %q, want %q", entries[1].DisplayName, "interview-me (grill-me @ owner/repo)")
 	}
 	if entries[1].Alias != "interview-me" {
 		t.Errorf("entries[1].Alias = %q, want %q", entries[1].Alias, "interview-me")
