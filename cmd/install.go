@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/nicolegros/skl/internal/config"
@@ -14,6 +15,7 @@ func newInstall() *cobra.Command {
 	var ref string
 	var all bool
 	var as string
+	var force bool
 
 	cmd := &cobra.Command{
 		Use:     "install [owner/repo or URL] [path]",
@@ -68,6 +70,7 @@ func newInstall() *cobra.Command {
 				Logf: func(format string, a ...any) {
 					fmt.Printf(format+"\n", a...)
 				},
+				Force:    force,
 			}
 
 			if all {
@@ -79,11 +82,28 @@ func newInstall() *cobra.Command {
 					fmt.Printf("Installed %s from %s\n", name, args[0])
 				}
 			} else {
-				name, err := skills.Install(opts)
+				result, err := skills.Install(opts)
 				if err != nil {
 					return err
 				}
-				fmt.Printf("Installed %s from %s\n", name, args[0])
+				if result.Name == "" && len(result.Modifications) > 0 {
+					skillName := opts.Repo
+					if opts.Path != "" {
+						skillName = filepath.Base(opts.Path)
+					}
+					if promptForModifications(skillName, result.Modifications) {
+						opts.Force = true
+						result, err = skills.Install(opts)
+						if err != nil {
+							return err
+						}
+						fmt.Printf("Installed %s from %s\n", result.Name, args[0])
+					} else {
+						fmt.Fprintf(os.Stderr, "Skipped\n")
+					}
+					return nil
+				}
+				fmt.Printf("Installed %s from %s\n", result.Name, args[0])
 			}
 			return nil
 		},
@@ -92,5 +112,6 @@ func newInstall() *cobra.Command {
 	cmd.Flags().StringVar(&ref, "ref", "", "Pin to a specific branch, tag, or commit SHA")
 	cmd.Flags().BoolVar(&all, "all", false, "Install all skills found in the repo")
 	cmd.Flags().StringVar(&as, "as", "", "Install the skill under a different name")
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite local modifications without prompting")
 	return cmd
 }

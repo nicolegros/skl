@@ -223,3 +223,113 @@ func TestUpdate_SpecificSkillOnly(t *testing.T) {
 		t.Error("grill was modified but shouldn't have been")
 	}
 }
+
+func TestUpdate_DetectsModificationsAndDoesNotOverwrite(t *testing.T) {
+	tarballV2 := makeTarball(t, "owner-repo-def456", map[string]string{
+		"SKILL.md": "# Updated Skill v2",
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(tarballV2)
+	}))
+	defer srv.Close()
+
+	installDir := t.TempDir()
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
+
+	// Pre-install: write the original file and store its checksum in lock
+	os.MkdirAll(filepath.Join(installDir, "repo"), 0o755)
+	originalContent := []byte("# Original v1")
+	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), originalContent, 0o644)
+	checksums, _ := computeChecksums(filepath.Join(installDir, "repo"))
+
+	lf := &lock.File{Skills: []lock.Skill{
+		{Name: "repo", Repo: "owner/repo", Path: "", Ref: "abc123", Pinned: false, Files: checksums},
+	}}
+	lock.Save(lf, lockPath)
+
+	// User modifies the file locally
+	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), []byte("# User's custom version"), 0o644)
+
+	result, err := Update(UpdateOptions{
+		Name:     "",
+		BaseURL:  srv.URL,
+		Dirs:     []string{installDir},
+		LockPath: lockPath,
+		Force:    false,
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	// Should NOT have updated
+	if len(result.Updated) != 0 {
+		t.Errorf("expected no updates, got %v", result.Updated)
+	}
+
+	// Should report modifications
+	if len(result.Modifications) != 1 {
+		t.Fatalf("expected 1 skill with modifications, got %d", len(result.Modifications))
+	}
+	if result.Modifications[0].SkillName != "repo" {
+		t.Errorf("modification skill = %q, want %q", result.Modifications[0].SkillName, "repo")
+	}
+	if len(result.Modifications[0].Dirs) != 1 {
+		t.Fatalf("expected 1 dir modification, got %d", len(result.Modifications[0].Dirs))
+	}
+
+	// File should still be the user's version
+	data, _ := os.ReadFile(filepath.Join(installDir, "repo", "SKILL.md"))
+	if string(data) != "# User's custom version" {
+		t.Errorf("file was overwritten! got: %s", data)
+	}
+}
+
+func TestUpdate_ForceTrueOverwritesModifications(t *testing.T) {
+	tarballV2 := makeTarball(t, "owner-repo-def456", map[string]string{
+		"SKILL.md": "# Updated Skill v2",
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(tarballV2)
+	}))
+	defer srv.Close()
+
+	installDir := t.TempDir()
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
+
+	// Pre-install with checksums
+	os.MkdirAll(filepath.Join(installDir, "repo"), 0o755)
+	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), []byte("# Original v1"), 0o644)
+	checksums, _ := computeChecksums(filepath.Join(installDir, "repo"))
+
+	lf := &lock.File{Skills: []lock.Skill{
+		{Name: "repo", Repo: "owner/repo", Path: "", Ref: "abc123", Pinned: false, Files: checksums},
+	}}
+	lock.Save(lf, lockPath)
+
+	// User modifies locally
+	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), []byte("# User's custom"), 0o644)
+
+	result, err := Update(UpdateOptions{
+		Name:     "",
+		BaseURL:  srv.URL,
+		Dirs:     []string{installDir},
+		LockPath: lockPath,
+		Force:    true,
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	// Should have updated despite modifications
+	if len(result.Updated) != 1 || result.Updated[0] != "repo" {
+		t.Errorf("Updated = %v, want [repo]", result.Updated)
+	}
+
+	// File should be the new version
+	data, _ := os.ReadFile(filepath.Join(installDir, "repo", "SKILL.md"))
+	if string(data) != "# Updated Skill v2" {
+		t.Errorf("file not updated, got: %s", data)
+	}
+}

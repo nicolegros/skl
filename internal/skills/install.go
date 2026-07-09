@@ -26,6 +26,7 @@ type InstallOptions struct {
 	LockPath string
 	Token    string
 	Logf     func(string, ...any) // optional logger for warnings
+	Force    bool
 }
 
 // fetchAndExtract downloads a tarball and extracts it to a temp directory.
@@ -81,12 +82,18 @@ func fetchAndExtract(baseURL, owner, repo, ref, token string) (extractedRoot, re
 	return extractedRoot, resolvedRef, cleanup, nil
 }
 
+// InstallResult contains the outcome of an install operation.
+type InstallResult struct {
+	Name          string
+	Modifications []Modification // non-nil when local modifications detected and Force=false
+}
+
 // Install fetches a skill from GitHub and installs it into all configured directories.
 // Returns the installed skill name.
-func Install(opts InstallOptions) (string, error) {
+func Install(opts InstallOptions) (*InstallResult, error) {
 	extractedRoot, resolvedRef, cleanup, err := fetchAndExtract(opts.BaseURL, opts.Owner, opts.Repo, opts.Ref, opts.Token)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer cleanup()
 
@@ -98,7 +105,24 @@ func Install(opts InstallOptions) (string, error) {
 	}
 
 	if _, err := os.Stat(filepath.Join(srcDir, "SKILL.md")); os.IsNotExist(err) {
-		return "", fmt.Errorf("no SKILL.md found in %s", opts.Path)
+		return nil, fmt.Errorf("no SKILL.md found in %s", opts.Path)
+	}
+
+	// Check for local modifications if not forcing
+	if !opts.Force {
+		lf, err := lock.Load(opts.LockPath)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range lf.Skills {
+			if s.Name == skillName && s.Files != nil {
+				mods := CheckModifications(skillName, opts.Dirs, s.Files)
+				if len(mods) > 0 {
+					return &InstallResult{Modifications: mods}, nil
+				}
+				break
+			}
+		}
 	}
 
 	// Determine the installed directory name
@@ -109,7 +133,7 @@ func Install(opts InstallOptions) (string, error) {
 		if skillExists(installedName, opts.Dirs) {
 			lf, err := lock.Load(opts.LockPath)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			ownedByUs := false
 			for _, s := range lf.Skills {
@@ -119,7 +143,7 @@ func Install(opts InstallOptions) (string, error) {
 				}
 			}
 			if !ownedByUs {
-				return "", fmt.Errorf("%q already exists; remove it first or choose a different name", installedName)
+				return nil, fmt.Errorf("%q already exists; remove it first or choose a different name", installedName)
 			}
 		}
 	}
@@ -128,7 +152,7 @@ func Install(opts InstallOptions) (string, error) {
 		dest := filepath.Join(dir, installedName)
 		os.RemoveAll(dest)
 		if err := copyDir(srcDir, dest); err != nil {
-			return "", fmt.Errorf("copying to %s: %w", dir, err)
+			return nil, fmt.Errorf("copying to %s: %w", dir, err)
 		}
 		if opts.Alias != "" {
 			if !patchFrontmatterName(dest, skillName, opts.Alias) {
@@ -140,9 +164,14 @@ func Install(opts InstallOptions) (string, error) {
 		}
 	}
 
+	checksums, err := computeChecksums(srcDir)
+	if err != nil {
+		return nil, fmt.Errorf("computing checksums: %w", err)
+	}
+
 	lf, err := lock.Load(opts.LockPath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	entry := lock.Skill{
 		Name:   skillName,
@@ -150,12 +179,13 @@ func Install(opts InstallOptions) (string, error) {
 		Path:   opts.Path,
 		Ref:    resolvedRef,
 		Pinned: opts.Pinned,
+		Files:  checksums,
 	}
 	if opts.Alias != "" {
 		entry.Alias = opts.Alias
 	}
 	lf.Add(entry)
-	return installedName, lock.Save(lf, opts.LockPath)
+	return &InstallResult{Name: installedName}, lock.Save(lf, opts.LockPath)
 }
 
 // InstallAll fetches all skills from a repo using --all flag.
