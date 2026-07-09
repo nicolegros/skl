@@ -691,3 +691,57 @@ func TestInstall_ForceOverwritesModifiedSkill(t *testing.T) {
 		t.Errorf("file not updated, got: %s", data)
 	}
 }
+
+func TestInstall_DetectsModificationsWithAlias(t *testing.T) {
+	tarball := makeTarball(t, "owner-repo-abc123", map[string]string{
+		"grill-me/SKILL.md": "---\nname: grill-me\n---\n# New version",
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(tarball)
+	}))
+	defer srv.Close()
+
+	installDir := t.TempDir()
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
+
+	// Simulate a previous install with --as interview-me
+	os.MkdirAll(filepath.Join(installDir, "interview-me"), 0o755)
+	os.WriteFile(filepath.Join(installDir, "interview-me", "SKILL.md"), []byte("---\nname: interview-me\n---\n# Original"), 0o644)
+	checksums, _ := computeChecksums(filepath.Join(installDir, "interview-me"))
+
+	lf := &lock.File{Skills: []lock.Skill{
+		{Name: "grill-me", Repo: "owner/repo", Path: "grill-me", Ref: "old123", Pinned: false, Alias: "interview-me", Files: checksums},
+	}}
+	lock.Save(lf, lockPath)
+
+	// User modifies the aliased skill
+	os.WriteFile(filepath.Join(installDir, "interview-me", "SKILL.md"), []byte("---\nname: interview-me\n---\n# My custom changes"), 0o644)
+
+	result, err := Install(InstallOptions{
+		Owner:    "owner",
+		Repo:     "repo",
+		Path:     "grill-me",
+		Ref:      "abc123",
+		Pinned:   false,
+		BaseURL:  srv.URL,
+		Dirs:     []string{installDir},
+		LockPath: lockPath,
+		Alias:    "interview-me",
+		Force:    false,
+	})
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+
+	// Should detect modifications and NOT overwrite
+	if len(result.Modifications) == 0 {
+		t.Fatal("expected modifications to be detected for aliased skill")
+	}
+
+	// File should still be the user's version
+	data, _ := os.ReadFile(filepath.Join(installDir, "interview-me", "SKILL.md"))
+	if !strings.Contains(string(data), "My custom changes") {
+		t.Errorf("file was overwritten! got: %s", data)
+	}
+}

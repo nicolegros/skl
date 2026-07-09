@@ -48,10 +48,18 @@ func Update(opts UpdateOptions) (*UpdateResult, error) {
 
 		// Check for local modifications before overwriting
 		if !opts.Force && skill.Files != nil {
-			mods := CheckModifications(skill.Name, opts.Dirs, skill.Files)
+			diskName := skill.Name
+			if skill.Alias != "" {
+				diskName = skill.Alias
+			}
+			mods := CheckModifications(diskName, opts.Dirs, skill.Files)
 			if len(mods) > 0 {
+				displayName := skill.Name
+				if skill.Alias != "" {
+					displayName = skill.Alias
+				}
 				result.Modifications = append(result.Modifications, SkillModification{
-					SkillName: skill.Name,
+					SkillName: displayName,
 					Dirs:      mods,
 				})
 				continue

@@ -117,7 +117,12 @@ func Install(opts InstallOptions) (*InstallResult, error) {
 		}
 		for _, s := range lf.Skills {
 			if s.Name == skillName && s.Files != nil {
-				mods := CheckModifications(skillName, opts.Dirs, s.Files)
+				// The skill lives on disk under the alias name if one was used
+				diskName := skillName
+				if s.Alias != "" {
+					diskName = s.Alias
+				}
+				mods := CheckModifications(diskName, opts.Dirs, s.Files)
 				if len(mods) > 0 {
 					return &InstallResult{Modifications: mods}, nil
 				}
