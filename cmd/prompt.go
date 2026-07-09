@@ -3,7 +3,6 @@ package cmd
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +25,7 @@ func promptForModifications(skillName string, mods []skills.Modification) bool {
 	for {
 		fmt.Fprintf(os.Stderr, "\n  [d]iff  [b]ackup & overwrite  [o]verwrite  [s]kip: ")
 		input, err := reader.ReadString('\n')
-		if err == io.EOF {
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "\n")
 			return false
 		}

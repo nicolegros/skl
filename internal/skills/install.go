@@ -188,9 +188,15 @@ func Install(opts InstallOptions) (*InstallResult, error) {
 	return &InstallResult{Name: installedName}, lock.Save(lf, opts.LockPath)
 }
 
+// InstallAllResult contains the outcome of an install-all operation.
+type InstallAllResult struct {
+	Installed []string
+	Skipped   []InstallResult // skills skipped due to local modifications
+}
+
 // InstallAll fetches all skills from a repo using --all flag.
-// Returns the list of installed skill names.
-func InstallAll(opts InstallOptions) ([]string, error) {
+// Returns the list of installed skill names and any skipped skills with modifications.
+func InstallAll(opts InstallOptions) (*InstallAllResult, error) {
 	extractedRoot, resolvedRef, cleanup, err := fetchAndExtract(opts.BaseURL, opts.Owner, opts.Repo, opts.Ref, opts.Token)
 	if err != nil {
 		return nil, err
@@ -210,9 +216,26 @@ func InstallAll(opts InstallOptions) ([]string, error) {
 		return nil, err
 	}
 
-	var names []string
+	result := &InstallAllResult{}
 	for _, skill := range discovered {
 		srcDir := filepath.Join(extractedRoot, skill.Path)
+
+		if !opts.Force {
+			for _, s := range lf.Skills {
+				if s.Name == skill.Name && s.Files != nil {
+					mods := CheckModifications(skill.Name, opts.Dirs, s.Files)
+					if len(mods) > 0 {
+						result.Skipped = append(result.Skipped, InstallResult{
+							Name:          skill.Name,
+							Modifications: mods,
+						})
+						goto nextSkill
+					}
+					break
+				}
+			}
+		}
+
 		for _, dir := range opts.Dirs {
 			dest := filepath.Join(dir, skill.Name)
 			os.RemoveAll(dest)
@@ -220,26 +243,29 @@ func InstallAll(opts InstallOptions) ([]string, error) {
 				return nil, fmt.Errorf("copying %s: %w", skill.Name, err)
 			}
 		}
-		checksums, err := computeChecksums(srcDir)
-		if err != nil {
-			return nil, fmt.Errorf("computing checksums for %s: %w", skill.Name, err)
+		{
+			checksums, err := computeChecksums(srcDir)
+			if err != nil {
+				return nil, fmt.Errorf("computing checksums for %s: %w", skill.Name, err)
+			}
+			path := skill.Path
+			if path == "." {
+				path = ""
+			}
+			lf.Add(lock.Skill{
+				Name:   skill.Name,
+				Repo:   opts.Owner + "/" + opts.Repo,
+				Path:   path,
+				Ref:    resolvedRef,
+				Pinned: opts.Pinned,
+				Files:  checksums,
+			})
+			result.Installed = append(result.Installed, skill.Name)
 		}
-		path := skill.Path
-		if path == "." {
-			path = ""
-		}
-		lf.Add(lock.Skill{
-			Name:   skill.Name,
-			Repo:   opts.Owner + "/" + opts.Repo,
-			Path:   path,
-			Ref:    resolvedRef,
-			Pinned: opts.Pinned,
-			Files:  checksums,
-		})
-		names = append(names, skill.Name)
+	nextSkill:
 	}
 
-	return names, lock.Save(lf, opts.LockPath)
+	return result, lock.Save(lf, opts.LockPath)
 }
 
 // InstallFromLock installs all skills from the lock file that are missing from disk.

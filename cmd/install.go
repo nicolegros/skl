@@ -74,12 +74,26 @@ func newInstall() *cobra.Command {
 			}
 
 			if all {
-				names, err := skills.InstallAll(opts)
+				result, err := skills.InstallAll(opts)
 				if err != nil {
 					return err
 				}
-				for _, name := range names {
+				for _, name := range result.Installed {
 					fmt.Printf("Installed %s from %s\n", name, args[0])
+				}
+				for _, skipped := range result.Skipped {
+					if promptForModifications(skipped.Name, skipped.Modifications) {
+						singleOpts := opts
+						singleOpts.Path = skipped.Name
+						singleOpts.Force = true
+						singleResult, err := skills.Install(singleOpts)
+						if err != nil {
+							return err
+						}
+						fmt.Printf("Installed %s from %s\n", singleResult.Name, args[0])
+					} else {
+						fmt.Fprintf(os.Stderr, "Skipped %s\n", skipped.Name)
+					}
 				}
 			} else {
 				result, err := skills.Install(opts)
