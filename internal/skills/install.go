@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/nicolegros/skl/internal/lock"
@@ -19,10 +20,12 @@ type InstallOptions struct {
 	Path     string // subdirectory within repo, empty for root
 	Ref      string
 	Pinned   bool
+	Alias    string // install under a different name
 	BaseURL  string // override for testing (GitHub API base)
 	Dirs     []string
 	LockPath string
 	Token    string
+	Logf     func(string, ...any) // optional logger for warnings
 }
 
 // fetchAndExtract downloads a tarball and extracts it to a temp directory.
@@ -98,11 +101,42 @@ func Install(opts InstallOptions) (string, error) {
 		return "", fmt.Errorf("no SKILL.md found in %s", opts.Path)
 	}
 
+	// Determine the installed directory name
+	installedName := skillName
+	if opts.Alias != "" {
+		installedName = opts.Alias
+		// Block if alias name already exists on disk, unless it's our own skill being updated
+		if skillExists(installedName, opts.Dirs) {
+			lf, err := lock.Load(opts.LockPath)
+			if err != nil {
+				return "", err
+			}
+			ownedByUs := false
+			for _, s := range lf.Skills {
+				if s.Alias == opts.Alias && s.Name == skillName {
+					ownedByUs = true
+					break
+				}
+			}
+			if !ownedByUs {
+				return "", fmt.Errorf("%q already exists; remove it first or choose a different name", installedName)
+			}
+		}
+	}
+
 	for _, dir := range opts.Dirs {
-		dest := filepath.Join(dir, skillName)
+		dest := filepath.Join(dir, installedName)
 		os.RemoveAll(dest)
 		if err := copyDir(srcDir, dest); err != nil {
 			return "", fmt.Errorf("copying to %s: %w", dir, err)
+		}
+		if opts.Alias != "" {
+			if !patchFrontmatterName(dest, skillName, opts.Alias) {
+				if opts.Logf != nil {
+					opts.Logf("warning: SKILL.md has no frontmatter name field to patch")
+				}
+			}
+			replacePathRefs(dest, skillName, opts.Alias)
 		}
 	}
 
@@ -110,14 +144,18 @@ func Install(opts InstallOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	lf.Add(lock.Skill{
+	entry := lock.Skill{
 		Name:   skillName,
 		Repo:   opts.Owner + "/" + opts.Repo,
 		Path:   opts.Path,
 		Ref:    resolvedRef,
 		Pinned: opts.Pinned,
-	})
-	return skillName, lock.Save(lf, opts.LockPath)
+	}
+	if opts.Alias != "" {
+		entry.Alias = opts.Alias
+	}
+	lf.Add(entry)
+	return installedName, lock.Save(lf, opts.LockPath)
 }
 
 // InstallAll fetches all skills from a repo using --all flag.
@@ -180,11 +218,15 @@ func InstallFromLock(lockPath, baseURL, token string, dirs []string, logf func(s
 	}
 
 	for _, s := range lf.Skills {
-		if skillExists(s.Name, dirs) {
-			logf("Skipping %s (already installed)", s.Name)
+		checkName := s.Name
+		if s.Alias != "" {
+			checkName = s.Alias
+		}
+		if skillExists(checkName, dirs) {
+			logf("Skipping %s (already installed)", checkName)
 			continue
 		}
-		logf("Installing %s from %s@%s", s.Name, s.Repo, s.Ref)
+		logf("Installing %s from %s@%s", checkName, s.Repo, s.Ref)
 		parts := strings.SplitN(s.Repo, "/", 2)
 		_, err := Install(InstallOptions{
 			Owner:    parts[0],
@@ -192,13 +234,14 @@ func InstallFromLock(lockPath, baseURL, token string, dirs []string, logf func(s
 			Path:     s.Path,
 			Ref:      s.Ref,
 			Pinned:   s.Pinned,
+			Alias:    s.Alias,
 			BaseURL:  baseURL,
 			Dirs:     dirs,
 			LockPath: lockPath,
 			Token:    token,
 		})
 		if err != nil {
-			return fmt.Errorf("installing %s: %w", s.Name, err)
+			return fmt.Errorf("installing %s: %w", checkName, err)
 		}
 	}
 	return nil
@@ -261,6 +304,63 @@ func extractTarball(r io.Reader, dest string) error {
 		}
 	}
 	return nil
+}
+
+// replacePathRefs replaces /<oldName>/ and /<oldName> (at segment boundaries)
+// with /<newName> in all files under dir. Only matches whole path segments to
+// avoid corrupting longer names like /<oldName>-extended.
+func replacePathRefs(dir, oldName, newName string) {
+	// Match /<oldName> followed by /, whitespace, quote, end-of-line, or end-of-string
+	pattern := regexp.MustCompile(`/` + regexp.QuoteMeta(oldName) + `([/\s"'` + "`" + `\])}\n]|$)`)
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		content := string(data)
+		if pattern.MatchString(content) {
+			content = pattern.ReplaceAllString(content, "/"+newName+"${1}")
+			_ = os.WriteFile(path, []byte(content), info.Mode())
+		}
+		return nil
+	})
+}
+
+// patchFrontmatterName replaces the name: field in SKILL.md frontmatter.
+// Returns true if a name field was found and patched.
+func patchFrontmatterName(dir, oldName, newName string) bool {
+	skillMd := filepath.Join(dir, "SKILL.md")
+	data, err := os.ReadFile(skillMd)
+	if err != nil {
+		return false
+	}
+	content := string(data)
+
+	// Replace name: <oldName> in frontmatter (between --- delimiters)
+	lines := strings.Split(content, "\n")
+	inFrontmatter := false
+	found := false
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "---" {
+			if !inFrontmatter {
+				inFrontmatter = true
+				continue
+			}
+			break // end of frontmatter
+		}
+		if inFrontmatter && strings.HasPrefix(strings.TrimSpace(line), "name:") {
+			lines[i] = "name: " + newName
+			found = true
+		}
+	}
+
+	if found {
+		_ = os.WriteFile(skillMd, []byte(strings.Join(lines, "\n")), 0o644)
+	}
+	return found
 }
 
 func copyDir(src, dst string) error {

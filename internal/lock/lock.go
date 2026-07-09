@@ -12,6 +12,7 @@ type Skill struct {
 	Path   string `json:"path"`
 	Ref    string `json:"ref"`
 	Pinned bool   `json:"pinned"`
+	Alias  string `json:"alias,omitempty"`
 }
 
 type File struct {
@@ -30,7 +31,7 @@ func (f *File) Add(s Skill) {
 
 func (f *File) Remove(name string) bool {
 	for i, s := range f.Skills {
-		if s.Name == name {
+		if s.Name == name || s.Alias == name {
 			f.Skills = append(f.Skills[:i], f.Skills[i+1:]...)
 			return true
 		}

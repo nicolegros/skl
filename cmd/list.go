@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/nicolegros/skl/internal/config"
-	"github.com/nicolegros/skl/internal/lock"
+	"github.com/nicolegros/skl/internal/skills"
 	"github.com/spf13/cobra"
 )
 
@@ -13,27 +13,27 @@ func newList() *cobra.Command {
 	return &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
-		Short: "List installed skills",
-		Args:  cobra.NoArgs,
+		Short:   "List installed skills",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			lockPath := filepath.Join(config.Dir(), "skl.lock")
 
-			lf, err := lock.Load(lockPath)
+			entries, err := skills.List(skills.ListOptions{LockPath: lockPath})
 			if err != nil {
 				return err
 			}
 
-			if len(lf.Skills) == 0 {
+			if len(entries) == 0 {
 				fmt.Println("No skills installed.")
 				return nil
 			}
 
-			for _, s := range lf.Skills {
+			for _, e := range entries {
 				pin := ""
-				if s.Pinned {
+				if e.Pinned {
 					pin = " (pinned)"
 				}
-				fmt.Printf("%-20s %s@%s%s\n", s.Name, s.Repo, s.Ref[:min(7, len(s.Ref))], pin)
+				fmt.Printf("%-20s %s@%s%s\n", e.DisplayName, e.Source, e.Ref[:min(7, len(e.Ref))], pin)
 			}
 			return nil
 		},

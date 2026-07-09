@@ -112,6 +112,73 @@ func TestUpdate_WarnsOnPinnedButStillUpdates(t *testing.T) {
 	}
 }
 
+func TestUpdate_ByAlias_FetchesAndRepatches(t *testing.T) {
+	tarballV2 := makeTarball(t, "owner-repo-def456", map[string]string{
+		"grill-me/SKILL.md":   "---\nname: grill-me\n---\n# Grill Me v2\nSee /grill-me/helpers.sh",
+		"grill-me/helpers.sh": "#!/bin/bash\n# v2",
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(tarballV2)
+	}))
+	defer srv.Close()
+
+	installDir := t.TempDir()
+	lockPath := filepath.Join(t.TempDir(), "skl.lock")
+
+	// Pre-populate: installed as "interview-me" via alias
+	os.MkdirAll(filepath.Join(installDir, "interview-me"), 0o755)
+	os.WriteFile(filepath.Join(installDir, "interview-me", "SKILL.md"), []byte("# old"), 0o644)
+
+	lf := &lock.File{Skills: []lock.Skill{
+		{Name: "grill-me", Repo: "owner/repo", Path: "grill-me", Ref: "abc123", Alias: "interview-me"},
+	}}
+	lock.Save(lf, lockPath)
+
+	result, err := Update(UpdateOptions{
+		Name:     "interview-me",
+		BaseURL:  srv.URL,
+		Dirs:     []string{installDir},
+		LockPath: lockPath,
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	if len(result.Updated) != 1 {
+		t.Fatalf("Updated = %v, want 1 entry", result.Updated)
+	}
+
+	// Should be installed under alias directory
+	data, err := os.ReadFile(filepath.Join(installDir, "interview-me", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("reading SKILL.md: %v", err)
+	}
+	content := string(data)
+
+	// Should contain v2 content
+	if !strings.Contains(content, "v2") {
+		t.Errorf("SKILL.md not updated to v2, got:\n%s", content)
+	}
+	// Frontmatter name should be patched to alias
+	if !strings.Contains(content, "name: interview-me") {
+		t.Errorf("frontmatter name not patched, got:\n%s", content)
+	}
+	// Path refs should be patched
+	if !strings.Contains(content, "/interview-me/helpers.sh") {
+		t.Errorf("path ref not patched, got:\n%s", content)
+	}
+
+	// Lock should retain alias and update ref
+	loaded, _ := lock.Load(lockPath)
+	if loaded.Skills[0].Alias != "interview-me" {
+		t.Errorf("lock alias = %q, want interview-me", loaded.Skills[0].Alias)
+	}
+	if loaded.Skills[0].Ref != "def456" {
+		t.Errorf("lock ref = %q, want def456", loaded.Skills[0].Ref)
+	}
+}
+
 func TestUpdate_SpecificSkillOnly(t *testing.T) {
 	tarball := makeTarball(t, "owner-repo-updated", map[string]string{
 		"tdd/SKILL.md": "# TDD Updated",

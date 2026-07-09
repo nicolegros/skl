@@ -49,9 +49,14 @@ skl install https://github.com/owner/repo grill-me
 # Pin to a specific ref (branch, tag, or commit)
 skl install owner/repo --ref v1.0.0
 
+# Install under a different name
+skl install owner/repo grill-me --as interview-me
+
 # Install all skills from a repo
 skl install owner/repo --all
 ```
+
+The `--as` flag installs the skill under a custom name. The skill's `SKILL.md` frontmatter `name:` field and internal path references are patched to match. `--as` and `--all` are mutually exclusive.
 
 ### Update skills
 
@@ -88,4 +93,4 @@ skl install owner/private-repo
 
 ## Lock file
 
-Installed skills are tracked in `~/.config/skl/skl.lock`. This file records the source repo, subdirectory path, resolved commit SHA, and whether the skill is pinned.
+Installed skills are tracked in `~/.config/skl/skl.lock`. This file records the source repo, subdirectory path, resolved commit SHA, whether the skill is pinned, and the alias (if installed with `--as`).

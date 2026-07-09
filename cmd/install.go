@@ -13,6 +13,7 @@ import (
 func newInstall() *cobra.Command {
 	var ref string
 	var all bool
+	var as string
 
 	cmd := &cobra.Command{
 		Use:     "install [owner/repo or URL] [path]",
@@ -20,6 +21,10 @@ func newInstall() *cobra.Command {
 		Short:   "Install a skill from a GitHub repository, or all missing skills from lock file",
 		Args:    cobra.RangeArgs(0, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if as != "" && all {
+				return fmt.Errorf("--as and --all are mutually exclusive")
+			}
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -55,10 +60,14 @@ func newInstall() *cobra.Command {
 				Path:     path,
 				Ref:      ref,
 				Pinned:   ref != "",
+				Alias:    as,
 				BaseURL:  "https://api.github.com",
 				Dirs:     dirs,
 				LockPath: lockPath,
 				Token:    token,
+				Logf: func(format string, a ...any) {
+					fmt.Printf(format+"\n", a...)
+				},
 			}
 
 			if all {
@@ -82,5 +91,6 @@ func newInstall() *cobra.Command {
 
 	cmd.Flags().StringVar(&ref, "ref", "", "Pin to a specific branch, tag, or commit SHA")
 	cmd.Flags().BoolVar(&all, "all", false, "Install all skills found in the repo")
+	cmd.Flags().StringVar(&as, "as", "", "Install the skill under a different name")
 	return cmd
 }

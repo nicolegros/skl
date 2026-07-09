@@ -21,12 +21,23 @@ func Remove(opts RemoveOptions) error {
 		return err
 	}
 
+	// Find the skill to determine the on-disk directory name
+	dirName := opts.Name
+	for _, s := range lf.Skills {
+		if s.Name == opts.Name || s.Alias == opts.Name {
+			if s.Alias != "" {
+				dirName = s.Alias
+			}
+			break
+		}
+	}
+
 	if !lf.Remove(opts.Name) {
 		return fmt.Errorf("skill %q not found in lock file", opts.Name)
 	}
 
 	for _, dir := range opts.Dirs {
-		os.RemoveAll(filepath.Join(dir, opts.Name))
+		os.RemoveAll(filepath.Join(dir, dirName))
 	}
 
 	return lock.Save(lf, opts.LockPath)
