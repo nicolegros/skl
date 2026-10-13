@@ -12,7 +12,7 @@ import (
 )
 
 // Remove deletes a skill's links, its store copy, and its lock entry.
-// Foreign symlinks are left alone; a real directory goes through resolve.
+// Foreign symlinks and user-owned directories are left alone; legacy copies go through resolve.
 func Remove(name string, env Env, resolve Resolver) error {
 	lf, err := lock.Load(env.Lock)
 	if err != nil {
@@ -28,17 +28,7 @@ func Remove(name string, env Env, resolve Resolver) error {
 
 	storePath := filepath.Join(env.Store, name)
 	var conflicts []Conflict
-	for _, dir := range entry.Links {
-		if slices.Contains(env.Dirs, dir) {
-			continue
-		}
-		if state, _ := linkState(dir, name, storePath); state == stateLinked {
-			if err := os.Remove(filepath.Join(dir, name)); err != nil {
-				return err
-			}
-		}
-	}
-	for _, dir := range env.Dirs {
+	for _, dir := range slices.Concat(entry.Links, env.Dirs) {
 		path := filepath.Join(dir, name)
 		switch state, _ := linkState(dir, name, storePath); state {
 		case stateLinked:
@@ -46,6 +36,10 @@ func Remove(name string, env Env, resolve Resolver) error {
 				return err
 			}
 		case stateLocalDir:
+			// Only a legacy entry owns its real directories; after migration they belong to the user.
+			if entry.Links != nil || !slices.Contains(env.Dirs, dir) {
+				continue
+			}
 			local, err := computeChecksums(path)
 			if err != nil {
 				return err
