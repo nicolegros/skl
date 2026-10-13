@@ -9,26 +9,30 @@ import (
 	"github.com/nicolegros/skl/internal/skills"
 )
 
-func loadEnv() (skills.Env, error) {
+func loadPaths() (skills.Paths, error) {
 	cfg, err := config.Load()
+	if err != nil {
+		return skills.Paths{}, err
+	}
+	return skills.Paths{
+		Store:   config.StoreDir(),
+		Backups: config.BackupsDir(),
+		Dirs:    cfg.Directories,
+		Lock:    filepath.Join(config.Dir(), "skl.lock"),
+	}, nil
+}
+
+func loadEnv() (skills.Env, error) {
+	paths, err := loadPaths()
 	if err != nil {
 		return skills.Env{}, err
 	}
 	return skills.Env{
-		Paths: skills.Paths{
-			Store:   config.StoreDir(),
-			Backups: config.BackupsDir(),
-			Dirs:    cfg.Directories,
-			Lock:    lockPath(),
-		},
+		Paths:   paths,
 		BaseURL: "https://api.github.com",
 		Token:   github.Token(),
 		Logf: func(format string, a ...any) {
 			fmt.Printf(format+"\n", a...)
 		},
 	}, nil
-}
-
-func lockPath() string {
-	return filepath.Join(config.Dir(), "skl.lock")
 }
