@@ -21,7 +21,7 @@ func TestDiscover_FindsSkillsRecursively(t *testing.T) {
 		t.Fatalf("Discover() error = %v", err)
 	}
 
-	// Root SKILL.md means the root itself is a skill — should return just that
+	// Root SKILL.md means the root itself is a skill, so it should return just that
 	// (same as single-skill repo behavior)
 	if len(skills) != 1 {
 		t.Fatalf("Discover() found %d skills, want 1 (root skill takes precedence)", len(skills))
