@@ -84,7 +84,7 @@ func showDiffs(skill string, conflicts []skills.Conflict, env skills.Env) {
 			fmt.Fprintf(os.Stderr, "  Could not find skill in lock file\n")
 			return
 		}
-		originals, err = skills.FetchOriginalFiles(env, entry.Repo, entry.Path, entry.Ref, files)
+		originals, err = skills.FetchOriginalFiles(env, entry.Repo, entry.Path, entry.Commit, files)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  Error fetching original: %v\n", err)
 			return
@@ -98,7 +98,7 @@ func showDiffs(skill string, conflicts []skills.Conflict, env skills.Env) {
 			continue
 		}
 		for _, file := range c.Files {
-			printDiff(file, originals[file], filepath.Join(c.Path, file), entry.Ref)
+			printDiff(file, originals[file], filepath.Join(c.Path, file), entry.Commit)
 		}
 	}
 }

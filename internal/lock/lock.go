@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Skill struct {
 	Name   string            `json:"name"`
 	Repo   string            `json:"repo"`
 	Path   string            `json:"path"`
-	Ref    string            `json:"ref"`
-	Pinned bool              `json:"pinned"`
+	Ref    string            `json:"ref"` // declared branch, tag, or SHA; empty means the default branch
+	Commit string            `json:"commit"`
 	Alias  string            `json:"alias,omitempty"`
 	Files  map[string]string `json:"files,omitempty"`
 	// Links lists the directories holding our symlink. nil marks an entry not yet migrated from copies.
@@ -70,11 +71,28 @@ func Load(path string) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
-	var f File
-	if err := json.Unmarshal(data, &f); err != nil {
+	var legacy struct {
+		Skills []struct {
+			Skill
+			Pinned bool `json:"pinned"`
+		} `json:"skills"`
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
 		return nil, err
 	}
-	return &f, nil
+	f := &File{}
+	for _, s := range legacy.Skills {
+		// Entries written before commit existed kept the resolved SHA in ref and the path as typed.
+		if s.Commit == "" {
+			s.Commit = s.Ref
+			s.Path = strings.Trim(s.Path, "/")
+			if !s.Pinned {
+				s.Ref = ""
+			}
+		}
+		f.Skills = append(f.Skills, s.Skill)
+	}
+	return f, nil
 }
 
 func Save(f *File, path string) error {

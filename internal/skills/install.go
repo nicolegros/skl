@@ -3,36 +3,23 @@ package skills
 import (
 	"archive/tar"
 	"compress/gzip"
-	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
-	"github.com/nicolegros/skl/internal/lock"
+	"github.com/nicolegros/skl/internal/config"
 )
 
-type InstallOptions struct {
-	Owner  string
-	Repo   string
-	Path   string // subdirectory within repo, empty for root
-	Ref    string
-	Pinned bool
-	Alias  string // install under a different name
-}
-
-// Result reports one skill a command acted on.
-type Result struct {
-	Name    string
-	Skipped bool // the user skipped a store conflict, so the store was left as is
-}
-
 // fetchAndExtract downloads a tarball and extracts it to a temp directory.
-// Returns the extracted root path, resolved ref, and a cleanup function.
-func fetchAndExtract(baseURL, owner, repo, ref, token string) (extractedRoot, resolvedRef string, cleanup func(), err error) {
+// Returns the extracted root path, the commit it resolved to, and a cleanup function.
+func fetchAndExtract(baseURL, owner, repo, ref, token string) (extractedRoot, commit string, cleanup func(), err error) {
 	url := fmt.Sprintf("%s/repos/%s/%s/tarball/%s", baseURL, owner, repo, ref)
 	req, _ := http.NewRequest("GET", url, nil)
 	if token != "" {
@@ -71,16 +58,13 @@ func fetchAndExtract(baseURL, owner, repo, ref, token string) (extractedRoot, re
 
 	extractedRoot = filepath.Join(tmpDir, entries[0].Name())
 
-	// Resolve ref from tarball prefix if not specified (format: owner-repo-SHA)
-	resolvedRef = ref
-	if resolvedRef == "" {
-		parts := strings.Split(entries[0].Name(), "-")
-		if len(parts) >= 3 {
-			resolvedRef = parts[len(parts)-1]
-		}
+	// The tarball prefix is owner-repo-SHA whatever ref was asked for.
+	parts := strings.Split(entries[0].Name(), "-")
+	if len(parts) < 3 {
+		cleanup()
+		return "", "", nil, fmt.Errorf("unexpected tarball prefix %q", entries[0].Name())
 	}
-
-	return extractedRoot, resolvedRef, cleanup, nil
+	return extractedRoot, parts[len(parts)-1], cleanup, nil
 }
 
 // fetcher downloads each repo@ref once per command.
@@ -91,15 +75,15 @@ type fetcher struct {
 }
 
 type fetchedRoot struct {
-	dir string
-	ref string
+	dir    string
+	commit string
 }
 
 func newFetcher(env Env) *fetcher {
 	return &fetcher{env: env, roots: map[string]fetchedRoot{}}
 }
 
-// fetch returns the skill directory at path within repo@ref and the resolved ref.
+// fetch returns the skill directory at path within repo@ref and the commit ref resolved to.
 func (f *fetcher) fetch(repo, ref, path string) (string, string, error) {
 	key := repo + "@" + ref
 	root, ok := f.roots[key]
@@ -108,19 +92,19 @@ func (f *fetcher) fetch(repo, ref, path string) (string, string, error) {
 		if !found {
 			return "", "", fmt.Errorf("invalid repo in lock: %s", repo)
 		}
-		dir, resolved, cleanup, err := fetchAndExtract(f.env.BaseURL, owner, name, ref, f.env.Token)
+		dir, commit, cleanup, err := fetchAndExtract(f.env.BaseURL, owner, name, ref, f.env.Token)
 		if err != nil {
 			return "", "", err
 		}
 		f.cleanups = append(f.cleanups, cleanup)
-		root = fetchedRoot{dir: dir, ref: resolved}
+		root = fetchedRoot{dir: dir, commit: commit}
 		f.roots[key] = root
 	}
 	dir := filepath.Join(root.dir, path)
 	if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err != nil {
 		return "", "", fmt.Errorf("no SKILL.md found in %s", path)
 	}
-	return dir, root.ref, nil
+	return dir, root.commit, nil
 }
 
 func (f *fetcher) cleanup() {
@@ -129,136 +113,55 @@ func (f *fetcher) cleanup() {
 	}
 }
 
-// Reconcile brings disk in line with the lock file: stores filled, links in place.
-func Reconcile(env Env, resolve Resolver) error {
-	lf, err := lock.Load(env.Lock)
+// Install adds wanted to skl.yaml and converges.
+// A name already listed from another repo or path is refused before anything changes.
+// Each line is written to skl.yaml only once its skill is in place.
+func Install(cfg *config.Config, wanted map[string]config.Source, env Env, resolve Resolver) ([]Result, error) {
+	for name, src := range wanted {
+		if have, ok := cfg.Skills[name]; ok && (have.Repo != src.Repo || have.Path != src.Path) {
+			return nil, fmt.Errorf("%s is already installed from %s. Use --as <name>, or edit skl.yaml to switch source", name, have)
+		}
+	}
+
+	manifest := maps.Clone(cfg.Skills)
+	maps.Copy(manifest, wanted)
+	results, err := converge(manifest, never, env, resolve)
 	if err != nil {
-		return err
+		return results, err
 	}
-	if len(lf.Skills) == 0 {
-		return fmt.Errorf("lock file is empty or missing")
+	for name, src := range wanted {
+		if !slices.ContainsFunc(results, func(r Result) bool { return r.Name == name && (r.Err != nil || r.Skipped) }) {
+			cfg.Skills[name] = src
+		}
 	}
-	return errors.Join(reconcile(lf, env, resolve, ""), lock.Save(lf, env.Lock))
+	return results, cfg.Save()
 }
 
-// reconcile syncs every lock entry except the one named except.
-// Only entries not yet migrated from copies get the interactive resolver; a conflict
-// the user already skipped stays skipped and shows up in `skl list`.
-func reconcile(lf *lock.File, env Env, resolve Resolver, except string) error {
-	f := newFetcher(env)
-	defer f.cleanup()
-
-	for i, entry := range lf.Skills {
-		name := entry.InstalledName()
-		if name == except {
-			continue
-		}
-		r := resolve
-		if entry.Links != nil {
-			r = skipAll
-		}
-		var src *fetched
-		if !exists(filepath.Join(env.Store, name)) {
-			env.logf("Fetching %s from %s@%s", name, entry.Repo, entry.Ref)
-			dir, ref, err := f.fetch(entry.Repo, entry.Ref, entry.Path)
-			if err != nil {
-				return fmt.Errorf("fetching %s: %w", name, err)
-			}
-			src = &fetched{dir: dir, ref: ref, pinned: entry.Pinned}
-		}
-		updated, _, err := sync(entry, src, env, r)
-		if err != nil {
-			return fmt.Errorf("linking %s: %w", name, err)
-		}
-		lf.Skills[i] = updated
-	}
-	return nil
-}
-
-// Install fetches a skill from GitHub into the store and links it into every configured directory.
-func Install(opts InstallOptions, env Env, resolve Resolver) (Result, error) {
-	lf, err := lock.Load(env.Lock)
-	if err != nil {
-		return Result{}, err
-	}
-	if err := reconcile(lf, env, resolve, ""); err != nil {
-		return Result{}, errors.Join(err, lock.Save(lf, env.Lock))
-	}
-
-	f := newFetcher(env)
-	defer f.cleanup()
-	srcDir, ref, err := f.fetch(opts.Owner+"/"+opts.Repo, opts.Ref, opts.Path)
-	if err != nil {
-		return Result{}, err
-	}
-
-	skillName := opts.Repo
-	if opts.Path != "" {
-		skillName = filepath.Base(opts.Path)
-	}
-	entry := lock.Skill{Name: skillName, Repo: opts.Owner + "/" + opts.Repo, Path: opts.Path, Alias: opts.Alias}
-	existing, found := lf.Get(entry.InstalledName())
-	if opts.Alias != "" {
-		ownedByOther := found && (existing.Name != entry.Name || existing.Repo != entry.Repo || existing.Path != entry.Path)
-		if ownedByOther || (!found && exists(filepath.Join(env.Store, opts.Alias))) {
-			return Result{}, fmt.Errorf("%q already exists; remove it first or choose a different name", opts.Alias)
-		}
-	}
-	if found {
-		entry.Ref, entry.Pinned, entry.Files, entry.Links = existing.Ref, existing.Pinned, existing.Files, existing.Links
-	}
-
-	updated, wrote, err := sync(entry, &fetched{dir: srcDir, ref: ref, pinned: opts.Pinned}, env, resolve)
-	if err != nil {
-		return Result{}, errors.Join(err, lock.Save(lf, env.Lock))
-	}
-	lf.Add(updated)
-	return Result{Name: entry.InstalledName(), Skipped: !wrote}, lock.Save(lf, env.Lock)
-}
-
-// InstallAll installs every skill found in the repo.
-func InstallAll(opts InstallOptions, env Env, resolve Resolver) ([]Result, error) {
-	lf, err := lock.Load(env.Lock)
-	if err != nil {
-		return nil, err
-	}
-	if err := reconcile(lf, env, resolve, ""); err != nil {
-		return nil, errors.Join(err, lock.Save(lf, env.Lock))
-	}
-
-	extractedRoot, resolvedRef, cleanup, err := fetchAndExtract(env.BaseURL, opts.Owner, opts.Repo, opts.Ref, env.Token)
+// DiscoverAll returns a source for every skill under src, keyed by name.
+func DiscoverAll(src config.Source, env Env) (map[string]config.Source, error) {
+	owner, repo, _ := strings.Cut(src.Repo, "/")
+	root, _, cleanup, err := fetchAndExtract(env.BaseURL, owner, repo, src.Ref, env.Token)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
 
-	discovered, err := Discover(extractedRoot)
+	found, err := Discover(filepath.Join(root, src.Path))
 	if err != nil {
 		return nil, err
 	}
-	if len(discovered) == 0 {
-		return nil, fmt.Errorf("no skills found in %s/%s", opts.Owner, opts.Repo)
+	if len(found) == 0 {
+		return nil, fmt.Errorf("no skills found in %s", src)
 	}
-
-	var results []Result
-	for _, skill := range discovered {
-		path := skill.Path
-		if path == "." {
-			path = ""
+	wanted := map[string]config.Source{}
+	for _, d := range found {
+		s := src
+		if d.Path != "." {
+			s.Path = path.Join(src.Path, filepath.ToSlash(d.Path))
 		}
-		entry := lock.Skill{Name: skill.Name, Repo: opts.Owner + "/" + opts.Repo, Path: path}
-		if existing, ok := lf.Get(skill.Name); ok {
-			entry.Ref, entry.Pinned, entry.Files, entry.Links = existing.Ref, existing.Pinned, existing.Files, existing.Links
-		}
-		src := &fetched{dir: filepath.Join(extractedRoot, skill.Path), ref: resolvedRef, pinned: opts.Pinned}
-		updated, wrote, err := sync(entry, src, env, resolve)
-		if err != nil {
-			return results, errors.Join(fmt.Errorf("installing %s: %w", skill.Name, err), lock.Save(lf, env.Lock))
-		}
-		lf.Add(updated)
-		results = append(results, Result{Name: skill.Name, Skipped: !wrote})
+		wanted[s.Name()] = s
 	}
-	return results, lock.Save(lf, env.Lock)
+	return wanted, nil
 }
 
 // FetchOriginalFiles fetches the upstream version of a skill at a given ref and returns

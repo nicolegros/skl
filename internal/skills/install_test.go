@@ -7,8 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
+
+	"github.com/nicolegros/skl/internal/config"
 )
 
 func sha(content string) string {
@@ -16,7 +17,7 @@ func sha(content string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func TestInstall_StoresOnceAndLinksEveryDir(t *testing.T) {
+func TestInstall_StoresOnceLinksEveryDirAndAddsLine(t *testing.T) {
 	_, url := newUpstream(t, "owner-repo-abc123", map[string]string{
 		"SKILL.md":   "# My Skill",
 		"helpers.sh": "#!/bin/bash",
@@ -24,12 +25,13 @@ func TestInstall_StoresOnceAndLinksEveryDir(t *testing.T) {
 	env := newEnv(t, url, 2)
 	r := &recorder{}
 
-	result, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Ref: "abc123", Pinned: true}, env, r.resolve)
+	results, err := installAs(t, env, "repo", "owner/repo@v1", r.resolve)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if result != (Result{Name: "repo"}) {
-		t.Errorf("Install() = %+v, want {Name: repo}", result)
+	want := []Result{{Name: "repo", Source: config.Source{Repo: "owner/repo", Ref: "v1"}, Action: Installed}}
+	if !slices.Equal(results, want) {
+		t.Errorf("Install() = %+v, want %+v", results, want)
 	}
 
 	if got := readFile(t, filepath.Join(env.Store, "repo", "helpers.sh")); got != "#!/bin/bash" {
@@ -41,18 +43,20 @@ func TestInstall_StoresOnceAndLinksEveryDir(t *testing.T) {
 			t.Errorf("SKILL.md through link in %s = %q", dir, got)
 		}
 	}
+	if got, want := readFile(t, manifestPath()), dirsBlock(env)+"skills:\n  repo: owner/repo@v1\n"; got != want {
+		t.Errorf("skl.yaml =\n%s\nwant\n%s", got, want)
+	}
 
 	lf := loadLock(t, env)
 	if len(lf.Skills) != 1 {
 		t.Fatalf("lock has %d skills, want 1", len(lf.Skills))
 	}
 	s := lf.Skills[0]
-	if s.Name != "repo" || s.Repo != "owner/repo" || s.Ref != "abc123" || !s.Pinned {
+	if s.Name != "repo" || s.Repo != "owner/repo" || s.Ref != "v1" || s.Commit != "abc123" {
 		t.Errorf("lock entry = %+v", s)
 	}
-	wantFiles := map[string]string{"SKILL.md": sha("# My Skill"), "helpers.sh": sha("#!/bin/bash")}
-	if len(s.Files) != 2 || s.Files["SKILL.md"] != wantFiles["SKILL.md"] || s.Files["helpers.sh"] != wantFiles["helpers.sh"] {
-		t.Errorf("lock files = %v, want %v", s.Files, wantFiles)
+	if len(s.Files) != 2 || s.Files["SKILL.md"] != sha("# My Skill") || s.Files["helpers.sh"] != sha("#!/bin/bash") {
+		t.Errorf("lock files = %v", s.Files)
 	}
 	if !slices.Equal(s.Links, env.Dirs) {
 		t.Errorf("lock links = %v, want %v", s.Links, env.Dirs)
@@ -70,13 +74,7 @@ func TestInstall_SubdirectorySkill(t *testing.T) {
 	})
 	env := newEnv(t, url, 1)
 
-	result, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Path: "grill-me", Ref: "abc123"}, env, skipAll)
-	if err != nil {
-		t.Fatalf("Install() error = %v", err)
-	}
-	if result.Name != "grill-me" {
-		t.Errorf("Install() name = %q, want grill-me", result.Name)
-	}
+	mustInstall(t, env, "grill-me", "owner/repo/grill-me")
 
 	entries, _ := os.ReadDir(env.Store)
 	var names []string
@@ -101,13 +99,7 @@ func TestInstall_WithAlias_PatchesStoreAndChecksumsMatch(t *testing.T) {
 	})
 	env := newEnv(t, url, 2)
 
-	result, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Path: "grill-me", Ref: "abc123", Alias: "interview-me"}, env, skipAll)
-	if err != nil {
-		t.Fatalf("Install() error = %v", err)
-	}
-	if result.Name != "interview-me" {
-		t.Errorf("Install() name = %q, want interview-me", result.Name)
-	}
+	mustInstall(t, env, "interview-me", "owner/repo/grill-me")
 
 	wantSkill := "---\nname: interview-me\ndescription: Grill the user\n---\nSee /interview-me/helpers.sh and /grill-me-harder"
 	if got := readFile(t, filepath.Join(env.Store, "interview-me", "SKILL.md")); got != wantSkill {
@@ -122,6 +114,9 @@ func TestInstall_WithAlias_PatchesStoreAndChecksumsMatch(t *testing.T) {
 			t.Errorf("%s/grill-me exists, want only the alias", dir)
 		}
 	}
+	if got, want := readFile(t, manifestPath()), dirsBlock(env)+"skills:\n  interview-me: owner/repo/grill-me\n"; got != want {
+		t.Errorf("skl.yaml =\n%s\nwant\n%s", got, want)
+	}
 
 	s := loadLock(t, env).Skills[0]
 	if s.Name != "grill-me" || s.Alias != "interview-me" {
@@ -132,15 +127,9 @@ func TestInstall_WithAlias_PatchesStoreAndChecksumsMatch(t *testing.T) {
 	}
 
 	r := &recorder{}
-	update, err := Update("interview-me", env, r.resolve)
-	if err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-	if len(r.calls) != 0 {
-		t.Errorf("update after aliased install reported conflicts: %+v", r.calls)
-	}
-	if len(update.Results) != 1 || update.Results[0] != (Result{Name: "interview-me"}) {
-		t.Errorf("Update() results = %+v", update.Results)
+	results, err := Converge(loadConfig(t), env, r.resolve)
+	if err != nil || len(results) != 0 || len(r.calls) != 0 {
+		t.Errorf("converge after aliased install = %+v, %v, conflicts %+v; want a silent no-op", results, err, r.calls)
 	}
 }
 
@@ -152,9 +141,7 @@ func TestInstall_WithAlias_WarnsIfNoFrontmatterName(t *testing.T) {
 	var logs []string
 	env.Logf = func(format string, a ...any) { logs = append(logs, fmt.Sprintf(format, a...)) }
 
-	if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Path: "grill-me", Alias: "interview-me"}, env, skipAll); err != nil {
-		t.Fatalf("Install() error = %v", err)
-	}
+	mustInstall(t, env, "interview-me", "owner/repo/grill-me")
 
 	if !slices.Equal(logs, []string{"warning: SKILL.md has no frontmatter name field to patch"}) {
 		t.Errorf("logs = %v", logs)
@@ -169,9 +156,7 @@ func TestInstall_TwoAliasesOfSameSkillCoexist(t *testing.T) {
 	env := newEnv(t, url, 1)
 
 	for _, alias := range []string{"interview-me", "quiz-me"} {
-		if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Path: "grill-me", Alias: alias}, env, skipAll); err != nil {
-			t.Fatalf("Install(--as %s) error = %v", alias, err)
-		}
+		mustInstall(t, env, alias, "owner/repo/grill-me")
 	}
 
 	lf := loadLock(t, env)
@@ -190,48 +175,82 @@ func TestInstall_TwoAliasesOfSameSkillCoexist(t *testing.T) {
 	}
 }
 
-func TestInstall_WithAlias_BlocksNameOwnedByOther(t *testing.T) {
-	_, url := newUpstream(t, "owner-repo-abc123", map[string]string{
+func TestInstall_NameListedFromAnotherSourceIsRefused(t *testing.T) {
+	up, url := newUpstream(t, "owner-repo-abc123", map[string]string{
 		"grill-me/SKILL.md":     "# Grill Me",
 		"interview-me/SKILL.md": "# Interview Me",
 	})
+	env := newEnv(t, url, 1)
+	mustInstall(t, env, "interview-me", "owner/repo/interview-me")
+	before := readFile(t, manifestPath())
+	fetches := len(up.refs)
 
-	t.Run("lock entry", func(t *testing.T) {
-		env := newEnv(t, url, 1)
-		if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Path: "interview-me"}, env, skipAll); err != nil {
-			t.Fatal(err)
-		}
-		_, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Path: "grill-me", Alias: "interview-me"}, env, skipAll)
-		if err == nil || !strings.Contains(err.Error(), "already exists") {
-			t.Fatalf("Install() error = %v, want already exists", err)
-		}
-		if got := readFile(t, filepath.Join(env.Store, "interview-me", "SKILL.md")); got != "# Interview Me" {
-			t.Errorf("store was overwritten: %q", got)
-		}
-	})
+	_, err := installAs(t, env, "interview-me", "owner/repo/grill-me", skipAll)
 
-	t.Run("store dir", func(t *testing.T) {
-		env := newEnv(t, url, 1)
-		writeFile(t, filepath.Join(env.Store, "interview-me", "SKILL.md"), "# Orphan")
-		_, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Path: "grill-me", Alias: "interview-me"}, env, skipAll)
-		if err == nil || !strings.Contains(err.Error(), "already exists") {
-			t.Fatalf("Install() error = %v, want already exists", err)
-		}
-	})
+	want := "interview-me is already installed from owner/repo/interview-me. Use --as <name>, or edit skl.yaml to switch source"
+	if err == nil || err.Error() != want {
+		t.Fatalf("Install() error = %v, want %q", err, want)
+	}
+	if got := readFile(t, manifestPath()); got != before {
+		t.Errorf("skl.yaml changed to\n%s", got)
+	}
+	if got := readFile(t, filepath.Join(env.Store, "interview-me", "SKILL.md")); got != "# Interview Me" {
+		t.Errorf("store was overwritten: %q", got)
+	}
+	if len(up.refs) != fetches {
+		t.Errorf("refused install fetched %v", up.refs[fetches:])
+	}
 }
 
-func TestInstall_FailsWithoutSkillMd(t *testing.T) {
+func TestInstall_SameSourceNewRefUpdatesLineAndReinstalls(t *testing.T) {
+	up, url := newUpstream(t, "owner-repo-abc123", map[string]string{"tdd/SKILL.md": "# TDD v1"})
+	up.byRef["v2"] = makeTarball(t, "owner-repo-def456", map[string]string{"tdd/SKILL.md": "# TDD v2"})
+	env := newEnv(t, url, 1)
+	setSkills(t, env, "skills:\n  # testing\n  tdd: owner/repo/tdd   # mine\n")
+	if _, err := Converge(loadConfig(t), env, skipAll); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := installAs(t, env, "tdd", "owner/repo/tdd@v2", skipAll)
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	want := []Result{{Name: "tdd", Source: config.Source{Repo: "owner/repo", Path: "tdd", Ref: "v2"}, Action: Installed}}
+	if !slices.Equal(results, want) {
+		t.Errorf("Install() = %+v, want %+v", results, want)
+	}
+	if got, want := readFile(t, manifestPath()), dirsBlock(env)+"skills:\n  # testing\n  tdd: owner/repo/tdd@v2   # mine\n"; got != want {
+		t.Errorf("skl.yaml =\n%s\nwant\n%s", got, want)
+	}
+	if got := readFile(t, filepath.Join(env.Dirs[0], "tdd", "SKILL.md")); got != "# TDD v2" {
+		t.Errorf("SKILL.md = %q, want # TDD v2", got)
+	}
+	if s := loadLock(t, env).Skills[0]; s.Ref != "v2" || s.Commit != "def456" {
+		t.Errorf("lock entry = %+v, want v2 at def456", s)
+	}
+}
+
+func TestInstall_FailedFetchLeavesManifestAndLockUnchanged(t *testing.T) {
 	_, url := newUpstream(t, "owner-repo-abc123", map[string]string{"README.md": "# Not a skill"})
 	env := newEnv(t, url, 1)
+	before := readFile(t, manifestPath())
 
-	if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo"}, env, skipAll); err == nil {
-		t.Fatal("Install() should error when SKILL.md is missing")
+	results, err := installAs(t, env, "repo", "owner/repo", skipAll)
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
 	}
-	if _, err := os.Stat(env.Store); err == nil {
-		entries, _ := os.ReadDir(env.Store)
-		if len(entries) != 0 {
-			t.Errorf("store has %d entries after a failed install", len(entries))
-		}
+	if len(results) != 1 || results[0].Err == nil || results[0].Err.Error() != "no SKILL.md found in " {
+		t.Fatalf("Install() = %+v, want one result failing with no SKILL.md", results)
+	}
+	if got := readFile(t, manifestPath()); got != before {
+		t.Errorf("skl.yaml changed to\n%s", got)
+	}
+	if lf := loadLock(t, env); len(lf.Skills) != 0 {
+		t.Errorf("lock = %+v, want empty", lf.Skills)
+	}
+	entries, _ := os.ReadDir(env.Store)
+	if len(entries) != 0 {
+		t.Errorf("store has %d entries after a failed install", len(entries))
 	}
 }
 
@@ -253,12 +272,12 @@ func TestInstall_LocalDirConflict(t *testing.T) {
 		env, local := setup(t)
 		r := &recorder{resolution: Skip}
 
-		result, err := Install(InstallOptions{Owner: "owner", Repo: "repo"}, env, r.resolve)
+		results, err := installAs(t, env, "repo", "owner/repo", r.resolve)
 		if err != nil {
 			t.Fatalf("Install() error = %v", err)
 		}
-		if result != (Result{Name: "repo"}) {
-			t.Errorf("Install() = %+v, want the store written", result)
+		if len(results) != 1 || results[0].Skipped || results[0].Err != nil {
+			t.Errorf("Install() = %+v, want the store written", results)
 		}
 		if len(r.calls) != 1 || len(r.calls[0]) != 1 {
 			t.Fatalf("resolver calls = %+v, want one call with one conflict", r.calls)
@@ -281,9 +300,8 @@ func TestInstall_LocalDirConflict(t *testing.T) {
 
 	t.Run("overwrite", func(t *testing.T) {
 		env, _ := setup(t)
-		r := &recorder{resolution: Overwrite}
 
-		if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo"}, env, r.resolve); err != nil {
+		if _, err := installAs(t, env, "repo", "owner/repo", func(string, []Conflict) Resolution { return Overwrite }); err != nil {
 			t.Fatalf("Install() error = %v", err)
 		}
 		for _, dir := range env.Dirs {
@@ -299,11 +317,10 @@ func TestInstall_LocalDirConflict(t *testing.T) {
 
 	t.Run("backup and overwrite", func(t *testing.T) {
 		env, local := setup(t)
-		r := &recorder{resolution: BackupAndOverwrite}
 		var logs []string
 		env.Logf = func(format string, a ...any) { logs = append(logs, fmt.Sprintf(format, a...)) }
 
-		if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo"}, env, r.resolve); err != nil {
+		if _, err := installAs(t, env, "repo", "owner/repo", func(string, []Conflict) Resolution { return BackupAndOverwrite }); err != nil {
 			t.Fatalf("Install() error = %v", err)
 		}
 		assertLinked(t, env.Dirs[0], "repo", env.Store)
@@ -331,7 +348,7 @@ func TestInstall_IdenticalLocalDirIsReplacedWithoutConflict(t *testing.T) {
 	writeFile(t, filepath.Join(env.Dirs[0], "repo", "SKILL.md"), "# Same")
 	r := &recorder{}
 
-	if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo"}, env, r.resolve); err != nil {
+	if _, err := installAs(t, env, "repo", "owner/repo", r.resolve); err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
 	if len(r.calls) != 0 {
@@ -359,12 +376,11 @@ func TestInstall_ForeignLinkConflict(t *testing.T) {
 		env, link, elsewhere := setup(t)
 		r := &recorder{resolution: Skip}
 
-		if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo"}, env, r.resolve); err != nil {
+		if _, err := installAs(t, env, "repo", "owner/repo", r.resolve); err != nil {
 			t.Fatalf("Install() error = %v", err)
 		}
-		want := []Conflict{{Path: link, Kind: ForeignLink, Target: elsewhere}}
-		if len(r.calls) != 1 || len(r.calls[0]) != 1 || r.calls[0][0].Path != want[0].Path || r.calls[0][0].Kind != ForeignLink || r.calls[0][0].Target != elsewhere {
-			t.Fatalf("resolver calls = %+v, want [%+v]", r.calls, want)
+		if len(r.calls) != 1 || len(r.calls[0]) != 1 || r.calls[0][0].Path != link || r.calls[0][0].Kind != ForeignLink || r.calls[0][0].Target != elsewhere {
+			t.Fatalf("resolver calls = %+v, want one ForeignLink conflict at %s", r.calls, link)
 		}
 		if target, _ := os.Readlink(link); target != elsewhere {
 			t.Errorf("foreign link now -> %q", target)
@@ -374,7 +390,7 @@ func TestInstall_ForeignLinkConflict(t *testing.T) {
 	t.Run("backup and overwrite", func(t *testing.T) {
 		env, link, elsewhere := setup(t)
 
-		if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo"}, env, func(string, []Conflict) Resolution { return BackupAndOverwrite }); err != nil {
+		if _, err := installAs(t, env, "repo", "owner/repo", func(string, []Conflict) Resolution { return BackupAndOverwrite }); err != nil {
 			t.Fatalf("Install() error = %v", err)
 		}
 		assertLinked(t, env.Dirs[0], "repo", env.Store)
@@ -388,31 +404,35 @@ func TestInstall_ForeignLinkConflict(t *testing.T) {
 	})
 }
 
-func TestInstallAll_LinksEverySkill(t *testing.T) {
+func TestInstallAll_WritesOneLinePerSkill(t *testing.T) {
 	_, url := newUpstream(t, "owner-repo-abc123", map[string]string{
-		"tdd/SKILL.md":   "# TDD",
-		"grill/SKILL.md": "# Grill",
+		"skills/tdd/SKILL.md":   "# TDD",
+		"skills/grill/SKILL.md": "# Grill",
 	})
 	env := newEnv(t, url, 2)
+	src, _ := config.ParseSource("owner/repo@v1")
 
-	results, err := InstallAll(InstallOptions{Owner: "owner", Repo: "repo"}, env, skipAll)
+	wanted, err := DiscoverAll(src, env)
 	if err != nil {
-		t.Fatalf("InstallAll() error = %v", err)
+		t.Fatalf("DiscoverAll() error = %v", err)
 	}
-	var names []string
+	results, err := Install(loadConfig(t), wanted, env, skipAll)
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+
+	var printed []string
 	for _, r := range results {
-		names = append(names, r.Name)
+		printed = append(printed, r.Name+" from "+r.Source.String())
 	}
-	slices.Sort(names)
-	if !slices.Equal(names, []string{"grill", "tdd"}) {
-		t.Errorf("InstallAll() names = %v", names)
+	if want := []string{"grill from owner/repo/skills/grill@v1", "tdd from owner/repo/skills/tdd@v1"}; !slices.Equal(printed, want) {
+		t.Errorf("results = %v, want %v", printed, want)
+	}
+	if got, want := readFile(t, manifestPath()), dirsBlock(env)+"skills:\n  grill: owner/repo/skills/grill@v1\n  tdd: owner/repo/skills/tdd@v1\n"; got != want {
+		t.Errorf("skl.yaml =\n%s\nwant\n%s", got, want)
 	}
 	for _, dir := range env.Dirs {
 		assertLinked(t, dir, "tdd", env.Store)
 		assertLinked(t, dir, "grill", env.Store)
-	}
-	lf := loadLock(t, env)
-	if s, ok := lf.Get("tdd"); !ok || s.Path != "tdd" || s.Ref != "abc123" || !slices.Equal(s.Links, env.Dirs) {
-		t.Errorf("lock tdd = %+v", s)
 	}
 }

@@ -5,56 +5,55 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/nicolegros/skl/internal/config"
 )
 
-func TestUpdate_RefreshesStoreBehindLinks(t *testing.T) {
-	up, url := newUpstream(t, "owner-repo-abc123", map[string]string{"SKILL.md": "# v1"})
+func TestUpdate_MovesDefaultBranchKeepsTagAndNeverWritesManifest(t *testing.T) {
+	up, url := newUpstream(t, "owner-repo-abc123", map[string]string{
+		"tdd/SKILL.md":   "# TDD v1",
+		"grill/SKILL.md": "# Grill v1",
+	})
+	up.byRef["v1"] = makeTarball(t, "owner-repo-abc123", map[string]string{
+		"tdd/SKILL.md":   "# TDD v1",
+		"grill/SKILL.md": "# Grill v1",
+	})
 	env := newEnv(t, url, 2)
-	if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo"}, env, skipAll); err != nil {
-		t.Fatal(err)
-	}
-	up.tarball = makeTarball(t, "owner-repo-def456", map[string]string{"SKILL.md": "# v2"})
+	manifest := "skills:\n  grill: owner/repo/grill@v1   # pinned\n  tdd: owner/repo/tdd\n"
+	setSkills(t, env, manifest)
+	runConverge(t, env, skipAll)
+	up.tarball = makeTarball(t, "owner-repo-def456", map[string]string{
+		"tdd/SKILL.md":   "# TDD v2",
+		"grill/SKILL.md": "# Grill v2",
+	})
 
-	result, err := Update("", env, skipAll)
+	results, err := Update(loadConfig(t), "", env, skipAll)
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if len(result.Results) != 1 || result.Results[0] != (Result{Name: "repo"}) {
-		t.Errorf("Update() results = %+v", result.Results)
+
+	want := []Result{{Name: "tdd", Source: config.Source{Repo: "owner/repo", Path: "tdd"}, Action: Updated}}
+	if !slices.Equal(results, want) {
+		t.Errorf("Update() = %+v, want %+v", results, want)
 	}
 	for _, dir := range env.Dirs {
-		assertLinked(t, dir, "repo", env.Store)
-		if got := readFile(t, filepath.Join(dir, "repo", "SKILL.md")); got != "# v2" {
-			t.Errorf("SKILL.md through %s = %q, want # v2", dir, got)
+		assertLinked(t, dir, "tdd", env.Store)
+		if got := readFile(t, filepath.Join(dir, "tdd", "SKILL.md")); got != "# TDD v2" {
+			t.Errorf("tdd through %s = %q, want # TDD v2", dir, got)
+		}
+		if got := readFile(t, filepath.Join(dir, "grill", "SKILL.md")); got != "# Grill v1" {
+			t.Errorf("grill through %s = %q, want the v1 tag kept", dir, got)
 		}
 	}
-	s := loadLock(t, env).Skills[0]
-	if s.Ref != "def456" || s.Files["SKILL.md"] != sha("# v2") {
-		t.Errorf("lock entry = %+v", s)
+	lf := loadLock(t, env)
+	if s, _ := lf.Get("tdd"); s.Ref != "" || s.Commit != "def456" || s.Files["SKILL.md"] != sha("# TDD v2") {
+		t.Errorf("lock tdd = %+v", s)
 	}
-	if up.refs[len(up.refs)-1] != "tarball" {
-		t.Errorf("update fetched ref %q, want latest", up.refs[len(up.refs)-1])
+	if s, _ := lf.Get("grill"); s.Ref != "v1" || s.Commit != "abc123" {
+		t.Errorf("lock grill = %+v", s)
 	}
-}
-
-func TestUpdate_WarnsOnPinnedButStillUpdates(t *testing.T) {
-	up, url := newUpstream(t, "owner-repo-old123", map[string]string{"SKILL.md": "# Old"})
-	env := newEnv(t, url, 1)
-	if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Ref: "old123", Pinned: true}, env, skipAll); err != nil {
-		t.Fatal(err)
-	}
-	up.tarball = makeTarball(t, "owner-repo-new999", map[string]string{"SKILL.md": "# New"})
-
-	result, err := Update("repo", env, skipAll)
-	if err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-	if !slices.Equal(result.Warnings, []string{`"repo" is pinned (was at old123), updating anyway`}) {
-		t.Errorf("warnings = %v", result.Warnings)
-	}
-	s := loadLock(t, env).Skills[0]
-	if !s.Pinned || s.Ref != "new999" {
-		t.Errorf("lock entry = %+v, want pinned at new999", s)
+	if got := readFile(t, manifestPath()); got != dirsBlock(env)+manifest {
+		t.Errorf("update rewrote skl.yaml:\n%s", got)
 	}
 }
 
@@ -64,20 +63,19 @@ func TestUpdate_SpecificSkillOnly(t *testing.T) {
 		"grill/SKILL.md": "# Grill v1",
 	})
 	env := newEnv(t, url, 1)
-	if _, err := InstallAll(InstallOptions{Owner: "owner", Repo: "repo"}, env, skipAll); err != nil {
-		t.Fatal(err)
-	}
+	mustInstall(t, env, "tdd", "owner/repo/tdd")
+	mustInstall(t, env, "grill", "owner/repo/grill")
 	up.tarball = makeTarball(t, "owner-repo-v2", map[string]string{
 		"tdd/SKILL.md":   "# TDD v2",
 		"grill/SKILL.md": "# Grill v2",
 	})
 
-	result, err := Update("tdd", env, skipAll)
+	results, err := Update(loadConfig(t), "tdd", env, skipAll)
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if len(result.Results) != 1 || result.Results[0].Name != "tdd" {
-		t.Errorf("Update() results = %+v, want [tdd]", result.Results)
+	if len(results) != 1 || results[0].Name != "tdd" {
+		t.Errorf("Update() = %+v, want [tdd]", results)
 	}
 	if got := readFile(t, filepath.Join(env.Dirs[0], "grill", "SKILL.md")); got != "# Grill v1" {
 		t.Errorf("grill = %q, want untouched", got)
@@ -87,10 +85,11 @@ func TestUpdate_SpecificSkillOnly(t *testing.T) {
 	}
 }
 
-func TestUpdate_ErrorsOnUnknownSkill(t *testing.T) {
+func TestUpdate_ErrorsOnSkillNotInManifest(t *testing.T) {
 	env := newEnv(t, "", 1)
-	if _, err := Update("nope", env, skipAll); err == nil {
-		t.Fatal("Update() should error for a skill not in the lock")
+	_, err := Update(loadConfig(t), "nope", env, skipAll)
+	if err == nil || err.Error() != `skill "nope" not found in skl.yaml` {
+		t.Fatalf("Update() error = %v", err)
 	}
 }
 
@@ -98,9 +97,7 @@ func TestUpdate_StoreEditedConflict(t *testing.T) {
 	setup := func(t *testing.T) (Env, string) {
 		up, url := newUpstream(t, "owner-repo-abc123", map[string]string{"SKILL.md": "# v1"})
 		env := newEnv(t, url, 1)
-		if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo"}, env, skipAll); err != nil {
-			t.Fatal(err)
-		}
+		mustInstall(t, env, "repo", "owner/repo")
 		writeFile(t, filepath.Join(env.Dirs[0], "repo", "SKILL.md"), "# edited through the link")
 		up.tarball = makeTarball(t, "owner-repo-def456", map[string]string{"SKILL.md": "# v2"})
 		return env, filepath.Join(env.Store, "repo")
@@ -110,12 +107,12 @@ func TestUpdate_StoreEditedConflict(t *testing.T) {
 		env, store := setup(t)
 		r := &recorder{resolution: Skip}
 
-		result, err := Update("", env, r.resolve)
+		results, err := Update(loadConfig(t), "", env, r.resolve)
 		if err != nil {
 			t.Fatalf("Update() error = %v", err)
 		}
-		if len(result.Results) != 1 || result.Results[0] != (Result{Name: "repo", Skipped: true}) {
-			t.Errorf("Update() results = %+v, want repo skipped", result.Results)
+		if len(results) != 1 || !results[0].Skipped || results[0].Action != Updated {
+			t.Errorf("Update() = %+v, want repo skipped", results)
 		}
 		if len(r.calls) != 1 || len(r.calls[0]) != 1 {
 			t.Fatalf("resolver calls = %+v", r.calls)
@@ -126,22 +123,22 @@ func TestUpdate_StoreEditedConflict(t *testing.T) {
 		if got := readFile(t, filepath.Join(store, "SKILL.md")); got != "# edited through the link" {
 			t.Errorf("store SKILL.md = %q, want the edit kept", got)
 		}
-		if ref := loadLock(t, env).Skills[0].Ref; ref != "abc123" {
-			t.Errorf("lock ref = %q, want abc123", ref)
+		if commit := loadLock(t, env).Skills[0].Commit; commit != "abc123" {
+			t.Errorf("lock commit = %q, want abc123", commit)
 		}
 	})
 
 	t.Run("overwrite", func(t *testing.T) {
 		env, store := setup(t)
 
-		if _, err := Update("", env, func(string, []Conflict) Resolution { return Overwrite }); err != nil {
+		if _, err := Update(loadConfig(t), "", env, func(string, []Conflict) Resolution { return Overwrite }); err != nil {
 			t.Fatalf("Update() error = %v", err)
 		}
 		if got := readFile(t, filepath.Join(store, "SKILL.md")); got != "# v2" {
 			t.Errorf("store SKILL.md = %q, want # v2", got)
 		}
-		if ref := loadLock(t, env).Skills[0].Ref; ref != "def456" {
-			t.Errorf("lock ref = %q, want def456", ref)
+		if commit := loadLock(t, env).Skills[0].Commit; commit != "def456" {
+			t.Errorf("lock commit = %q, want def456", commit)
 		}
 		entries, _ := os.ReadDir(env.Store)
 		if len(entries) != 1 {

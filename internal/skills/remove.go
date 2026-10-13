@@ -1,76 +1,38 @@
 package skills
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"maps"
 	"slices"
-	"time"
 
+	"github.com/nicolegros/skl/internal/config"
 	"github.com/nicolegros/skl/internal/lock"
 )
 
-// Remove deletes a skill's links, its store copy, and its lock entry.
-// Foreign symlinks and user-owned directories are left alone; legacy copies go through resolve.
-func Remove(name string, env Env, resolve Resolver) error {
+// Remove converges without name, which prunes it, then drops its line unless the prune was skipped or failed.
+func Remove(cfg *config.Config, name string, env Env, resolve Resolver) ([]Result, error) {
 	lf, err := lock.Load(env.Lock)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	entry, ok := lf.Get(name)
-	if !ok {
-		return fmt.Errorf("skill %q not found in lock file", name)
+	changes := plan(cfg.Skills, lf)
+	i := slices.IndexFunc(changes, func(c change) bool { return c.Name == name })
+	if i < 0 {
+		return nil, fmt.Errorf("skill %q is not in skl.yaml or the lock file", name)
 	}
-	if err := reconcile(lf, env, resolve, name); err != nil {
-		return errors.Join(err, lock.Save(lf, env.Lock))
+	manifest := maps.Clone(cfg.Skills)
+	delete(manifest, name)
+	results, err := converge(manifest, never, env, resolve)
+	if err != nil {
+		return results, err
 	}
-
-	storePath := filepath.Join(env.Store, name)
-	var conflicts []Conflict
-	for _, dir := range slices.Concat(entry.Links, env.Dirs) {
-		path := filepath.Join(dir, name)
-		switch state, _ := linkState(dir, name, storePath); state {
-		case stateLinked:
-			if err := os.Remove(path); err != nil {
-				return err
-			}
-		case stateLocalDir:
-			// Only a legacy entry owns its real directories; after migration they belong to the user.
-			if entry.Links != nil || !slices.Contains(env.Dirs, dir) {
-				continue
-			}
-			local, err := computeChecksums(path)
-			if err != nil {
-				return err
-			}
-			conflicts = append(conflicts, Conflict{Path: path, Kind: LocalDir, Files: diffChecksums(entry.Files, local)})
-		}
+	if c := changes[i]; c.Kind == Add {
+		// Never installed, so there is nothing to prune; dropping the line is the whole removal.
+		results = append([]Result{{Name: name, Source: *c.Want, Action: Removed}}, results...)
 	}
-
-	if len(conflicts) > 0 {
-		resolution := resolve(name, conflicts)
-		now := time.Now()
-		for _, c := range conflicts {
-			if resolution == Skip {
-				break
-			}
-			if resolution == BackupAndOverwrite {
-				dst, err := backup(c, env.Backups, name, now)
-				if err != nil {
-					return fmt.Errorf("backing up %s: %w", c.Path, err)
-				}
-				env.logf("Backed up %s to %s", c.Path, dst)
-			}
-			if err := os.RemoveAll(c.Path); err != nil {
-				return err
-			}
-		}
+	if slices.ContainsFunc(results, func(r Result) bool { return r.Name == name && (r.Err != nil || r.Skipped) }) {
+		return results, nil
 	}
-
-	if err := os.RemoveAll(storePath); err != nil {
-		return err
-	}
-	lf.Remove(name)
-	return lock.Save(lf, env.Lock)
+	delete(cfg.Skills, name)
+	return results, cfg.Save()
 }

@@ -1,10 +1,10 @@
 package cmd
 
 import (
+	"cmp"
 	"fmt"
-	"os"
 
-	"github.com/nicolegros/skl/internal/github"
+	"github.com/nicolegros/skl/internal/config"
 	"github.com/nicolegros/skl/internal/skills"
 	"github.com/spf13/cobra"
 )
@@ -16,66 +16,76 @@ func newInstall() *cobra.Command {
 	var force bool
 
 	cmd := &cobra.Command{
-		Use:     "install [owner/repo or URL] [path]",
+		Use:     "install [owner/repo[/path][@ref] or URL] [path]",
 		Aliases: []string{"i"},
-		Short:   "Install a skill from a GitHub repository, or link every skill from the lock file",
+		Short:   "Install a skill and add it to skl.yaml, or install everything skl.yaml lists",
 		Args:    cobra.RangeArgs(0, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if as != "" && all {
 				return fmt.Errorf("--as and --all are mutually exclusive")
 			}
+			if len(args) == 0 && (as != "" || all || ref != "") {
+				return fmt.Errorf("--as, --all, and --ref need a source")
+			}
 
-			env, err := loadEnv()
+			cfg, env, err := load()
 			if err != nil {
 				return err
 			}
 			resolve := resolver(force, env)
 
 			if len(args) == 0 {
-				return skills.Reconcile(env, resolve)
+				results, err := skills.Converge(cfg, env, resolve)
+				return report(cmd, results, err)
 			}
 
-			owner, repo, err := github.ParseRepo(args[0])
+			src, err := sourceFromArgs(args, ref)
 			if err != nil {
 				return err
 			}
-
-			var path string
-			if len(args) > 1 {
-				path = args[1]
-			}
-
-			opts := skills.InstallOptions{
-				Owner:  owner,
-				Repo:   repo,
-				Path:   path,
-				Ref:    ref,
-				Pinned: ref != "",
-				Alias:  as,
-			}
-
-			var results []skills.Result
+			wanted := map[string]config.Source{cmp.Or(as, src.Name()): src}
 			if all {
-				results, err = skills.InstallAll(opts, env, resolve)
-			} else {
-				var result skills.Result
-				result, err = skills.Install(opts, env, resolve)
-				results = []skills.Result{result}
-			}
-			for _, r := range results {
-				if r.Skipped {
-					fmt.Fprintf(os.Stderr, "Skipped %s\n", r.Name)
-				} else if r.Name != "" {
-					fmt.Printf("Installed %s from %s\n", r.Name, args[0])
+				if wanted, err = skills.DiscoverAll(src, env); err != nil {
+					return err
 				}
 			}
-			return err
+			results, err := skills.Install(cfg, wanted, env, resolve)
+			return report(cmd, results, err)
 		},
 	}
 
-	cmd.Flags().StringVar(&ref, "ref", "", "Pin to a specific branch, tag, or commit SHA")
+	cmd.Flags().StringVar(&ref, "ref", "", "Branch, tag, or commit SHA to install (default branch if empty)")
 	cmd.Flags().BoolVar(&all, "all", false, "Install all skills found in the repo")
 	cmd.Flags().StringVar(&as, "as", "", "Install the skill under a different name")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite local modifications without prompting")
 	return cmd
+}
+
+// sourceFromArgs combines a source string, an optional path argument, and --ref.
+func sourceFromArgs(args []string, ref string) (config.Source, error) {
+	src, err := config.ParseSource(args[0])
+	if err != nil {
+		return src, err
+	}
+	if len(args) > 1 {
+		if src.Path != "" {
+			return src, fmt.Errorf("path given twice: %s and %s", src.Path, args[1])
+		}
+		withPath, err := config.ParseSource(src.Repo + "/" + args[1])
+		if err != nil {
+			return src, err
+		}
+		src.Path = withPath.Path
+		if withPath.Ref != "" && src.Ref != "" {
+			return src, fmt.Errorf("ref given twice: @%s and @%s", src.Ref, withPath.Ref)
+		}
+		src.Ref = cmp.Or(src.Ref, withPath.Ref)
+	}
+	if ref != "" {
+		if src.Ref != "" && src.Ref != ref {
+			return src, fmt.Errorf("--ref %s conflicts with @%s", ref, src.Ref)
+		}
+		src.Ref = ref
+	}
+	return src, nil
 }
