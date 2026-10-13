@@ -2,9 +2,8 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
+	"strings"
 
-	"github.com/nicolegros/skl/internal/config"
 	"github.com/nicolegros/skl/internal/skills"
 	"github.com/spf13/cobra"
 )
@@ -16,15 +15,17 @@ func newList() *cobra.Command {
 		Short:   "List installed skills",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			lockPath := filepath.Join(config.Dir(), "skl.lock")
-
-			entries, err := skills.List(skills.ListOptions{LockPath: lockPath})
+			paths, err := loadPaths()
+			if err != nil {
+				return err
+			}
+			entries, err := skills.List(paths)
 			if err != nil {
 				return err
 			}
 
 			if len(entries) == 0 {
-				fmt.Println("No skills installed.")
+				fmt.Fprintln(cmd.OutOrStdout(), "No skills installed.")
 				return nil
 			}
 
@@ -41,7 +42,11 @@ func newList() *cobra.Command {
 				if e.Pinned {
 					pin = " (pinned)"
 				}
-				fmt.Printf("%-*s   %s@%s%s\n", maxName, e.DisplayName, e.Source, e.Ref[:min(7, len(e.Ref))], pin)
+				unlinked := ""
+				if len(e.Unlinked) > 0 {
+					unlinked = " (unlinked: " + strings.Join(e.Unlinked, ", ") + ")"
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%-*s   %s@%s%s%s\n", maxName, e.DisplayName, e.Source, e.Ref[:min(7, len(e.Ref))], pin, unlinked)
 			}
 			return nil
 		},

@@ -1,44 +1,76 @@
 package skills
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"time"
 
 	"github.com/nicolegros/skl/internal/lock"
 )
 
-type RemoveOptions struct {
-	Name     string
-	Dirs     []string
-	LockPath string
-}
-
-// Remove deletes a skill from all configured directories and the lock file.
-func Remove(opts RemoveOptions) error {
-	lf, err := lock.Load(opts.LockPath)
+// Remove deletes a skill's links, its store copy, and its lock entry.
+// Foreign symlinks and user-owned directories are left alone; legacy copies go through resolve.
+func Remove(name string, env Env, resolve Resolver) error {
+	lf, err := lock.Load(env.Lock)
 	if err != nil {
 		return err
 	}
+	entry, ok := lf.Get(name)
+	if !ok {
+		return fmt.Errorf("skill %q not found in lock file", name)
+	}
+	if err := reconcile(lf, env, resolve, name); err != nil {
+		return errors.Join(err, lock.Save(lf, env.Lock))
+	}
 
-	// Find the skill to determine the on-disk directory name
-	dirName := opts.Name
-	for _, s := range lf.Skills {
-		if s.Name == opts.Name || s.Alias == opts.Name {
-			if s.Alias != "" {
-				dirName = s.Alias
+	storePath := filepath.Join(env.Store, name)
+	var conflicts []Conflict
+	for _, dir := range slices.Concat(entry.Links, env.Dirs) {
+		path := filepath.Join(dir, name)
+		switch state, _ := linkState(dir, name, storePath); state {
+		case stateLinked:
+			if err := os.Remove(path); err != nil {
+				return err
 			}
-			break
+		case stateLocalDir:
+			// Only a legacy entry owns its real directories; after migration they belong to the user.
+			if entry.Links != nil || !slices.Contains(env.Dirs, dir) {
+				continue
+			}
+			local, err := computeChecksums(path)
+			if err != nil {
+				return err
+			}
+			conflicts = append(conflicts, Conflict{Path: path, Kind: LocalDir, Files: diffChecksums(entry.Files, local)})
 		}
 	}
 
-	if !lf.Remove(opts.Name) {
-		return fmt.Errorf("skill %q not found in lock file", opts.Name)
+	if len(conflicts) > 0 {
+		resolution := resolve(name, conflicts)
+		now := time.Now()
+		for _, c := range conflicts {
+			if resolution == Skip {
+				break
+			}
+			if resolution == BackupAndOverwrite {
+				dst, err := backup(c, env.Backups, name, now)
+				if err != nil {
+					return fmt.Errorf("backing up %s: %w", c.Path, err)
+				}
+				env.logf("Backed up %s to %s", c.Path, dst)
+			}
+			if err := os.RemoveAll(c.Path); err != nil {
+				return err
+			}
+		}
 	}
 
-	for _, dir := range opts.Dirs {
-		os.RemoveAll(filepath.Join(dir, dirName))
+	if err := os.RemoveAll(storePath); err != nil {
+		return err
 	}
-
-	return lock.Save(lf, opts.LockPath)
+	lf.Remove(name)
+	return lock.Save(lf, env.Lock)
 }

@@ -1,96 +1,55 @@
 package skills
 
 import (
+	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/nicolegros/skl/internal/lock"
 )
 
-type UpdateOptions struct {
-	Name     string // empty = update all
-	BaseURL  string
-	Dirs     []string
-	LockPath string
-	Token    string
-	Force    bool
-}
-
-// SkillModification represents a skill that has local modifications in one or more directories.
-type SkillModification struct {
-	SkillName string
-	Dirs      []Modification
-}
-
 type UpdateResult struct {
-	Updated       []string
-	Warnings      []string
-	Modifications []SkillModification
+	Results  []Result
+	Warnings []string
 }
 
-// Update refreshes installed skills from their upstream repos.
-func Update(opts UpdateOptions) (*UpdateResult, error) {
-	lf, err := lock.Load(opts.LockPath)
+// Update refreshes installed skills from their upstream repos. An empty name updates all.
+func Update(name string, env Env, resolve Resolver) (*UpdateResult, error) {
+	lf, err := lock.Load(env.Lock)
 	if err != nil {
 		return nil, err
 	}
-
-	result := &UpdateResult{}
-
-	for _, skill := range lf.Skills {
-		if opts.Name != "" && skill.Name != opts.Name && skill.Alias != opts.Name {
-			continue
+	if name != "" {
+		if _, ok := lf.Get(name); !ok {
+			return nil, fmt.Errorf("skill %q not found in lock file", name)
 		}
-
-		if skill.Pinned {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("%q is pinned (was at %s), updating anyway", skill.Name, skill.Ref))
-		}
-
-		// Check for local modifications before overwriting
-		if !opts.Force && skill.Files != nil {
-			diskName := skill.Name
-			if skill.Alias != "" {
-				diskName = skill.Alias
-			}
-			mods := CheckModifications(diskName, opts.Dirs, skill.Files)
-			if len(mods) > 0 {
-				displayName := skill.Name
-				if skill.Alias != "" {
-					displayName = skill.Alias
-				}
-				result.Modifications = append(result.Modifications, SkillModification{
-					SkillName: displayName,
-					Dirs:      mods,
-				})
-				continue
-			}
-		}
-
-		// Parse owner/repo from lock entry
-		parts := strings.SplitN(skill.Repo, "/", 2)
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid repo in lock: %s", skill.Repo)
-		}
-
-		_, err := Install(InstallOptions{
-			Owner:    parts[0],
-			Repo:     parts[1],
-			Path:     skill.Path,
-			Ref:      "", // latest
-			Pinned:   skill.Pinned,
-			Alias:    skill.Alias,
-			BaseURL:  opts.BaseURL,
-			Dirs:     opts.Dirs,
-			LockPath: opts.LockPath,
-			Token:    opts.Token,
-			Force:    true, // already checked modifications at this level
-		})
-		if err != nil {
-			return nil, fmt.Errorf("updating %s: %w", skill.Name, err)
-		}
-
-		result.Updated = append(result.Updated, skill.Name)
+	}
+	if err := reconcile(lf, env, resolve, ""); err != nil {
+		return nil, errors.Join(err, lock.Save(lf, env.Lock))
 	}
 
-	return result, nil
+	f := newFetcher(env)
+	defer f.cleanup()
+
+	result := &UpdateResult{}
+	for i, entry := range lf.Skills {
+		installed := entry.InstalledName()
+		if name != "" && installed != name {
+			continue
+		}
+		if entry.Pinned {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("%q is pinned (was at %s), updating anyway", installed, entry.Ref))
+		}
+
+		dir, ref, err := f.fetch(entry.Repo, "", entry.Path)
+		if err != nil {
+			return result, errors.Join(fmt.Errorf("updating %s: %w", installed, err), lock.Save(lf, env.Lock))
+		}
+		updated, wrote, err := sync(entry, &fetched{dir: dir, ref: ref, pinned: entry.Pinned}, env, resolve)
+		if err != nil {
+			return result, errors.Join(fmt.Errorf("updating %s: %w", installed, err), lock.Save(lf, env.Lock))
+		}
+		lf.Skills[i] = updated
+		result.Results = append(result.Results, Result{Name: installed, Skipped: !wrote})
+	}
+	return result, lock.Save(lf, env.Lock)
 }

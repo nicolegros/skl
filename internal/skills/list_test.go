@@ -1,46 +1,54 @@
 package skills
 
 import (
+	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/nicolegros/skl/internal/lock"
 )
 
 func TestList_ShowsAliasRelationship(t *testing.T) {
-	lockPath := filepath.Join(t.TempDir(), "skl.lock")
-
-	lf := &lock.File{Skills: []lock.Skill{
-		{Name: "tdd", Repo: "owner/repo", Path: "tdd", Ref: "abc123", Pinned: false},
+	env := newEnv(t, "", 1)
+	lock.Save(&lock.File{Skills: []lock.Skill{
+		{Name: "tdd", Repo: "owner/repo", Path: "tdd", Ref: "abc123"},
 		{Name: "grill-me", Repo: "owner/repo", Path: "grill-me", Ref: "def456", Alias: "interview-me"},
-	}}
-	lock.Save(lf, lockPath)
+	}}, env.Lock)
 
-	entries, err := List(ListOptions{LockPath: lockPath})
+	entries, err := List(env.Paths)
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-
 	if len(entries) != 2 {
 		t.Fatalf("List() returned %d entries, want 2", len(entries))
 	}
+	if entries[0].DisplayName != "tdd" || entries[0].Alias != "" {
+		t.Errorf("entries[0] = %+v", entries[0])
+	}
+	if entries[1].DisplayName != "interview-me (grill-me @ owner/repo)" || entries[1].Alias != "interview-me" || entries[1].Source != "owner/repo" {
+		t.Errorf("entries[1] = %+v", entries[1])
+	}
+}
 
-	// First entry: no alias
-	if entries[0].DisplayName != "tdd" {
-		t.Errorf("entries[0].DisplayName = %q, want %q", entries[0].DisplayName, "tdd")
-	}
-	if entries[0].Alias != "" {
-		t.Errorf("entries[0].Alias = %q, want empty", entries[0].Alias)
+func TestList_ReportsUnlinkedDirs(t *testing.T) {
+	_, url := newUpstream(t, "owner-repo-abc123", map[string]string{"SKILL.md": "# Skill"})
+	env := newEnv(t, url, 2)
+	if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo"}, env, skipAll); err != nil {
+		t.Fatal(err)
 	}
 
-	// Second entry: has alias, should show relationship
-	if entries[1].DisplayName != "interview-me (grill-me @ owner/repo)" {
-		t.Errorf("entries[1].DisplayName = %q, want %q", entries[1].DisplayName, "interview-me (grill-me @ owner/repo)")
+	entries, err := List(env.Paths)
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
 	}
-	if entries[1].Alias != "interview-me" {
-		t.Errorf("entries[1].Alias = %q, want %q", entries[1].Alias, "interview-me")
+	if len(entries) != 1 || entries[0].DisplayName != "repo" || entries[0].Unlinked != nil {
+		t.Fatalf("fully linked List() = %+v, want repo with no unlinked dirs", entries)
 	}
-	if entries[1].Source != "owner/repo" {
-		t.Errorf("entries[1].Source = %q, want %q", entries[1].Source, "owner/repo")
+
+	os.Remove(filepath.Join(env.Dirs[1], "repo"))
+	entries, _ = List(env.Paths)
+	if !slices.Equal(entries[0].Unlinked, []string{env.Dirs[1]}) {
+		t.Errorf("Unlinked = %v, want [%s]", entries[0].Unlinked, env.Dirs[1])
 	}
 }

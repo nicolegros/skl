@@ -1,335 +1,151 @@
 package skills
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
+	"slices"
 	"testing"
-
-	"github.com/nicolegros/skl/internal/lock"
 )
 
-func TestUpdate_RefreshesUnpinnedSkill(t *testing.T) {
-	// Initial tarball (v1)
-	tarballV2 := makeTarball(t, "owner-repo-def456", map[string]string{
-		"SKILL.md": "# Updated Skill v2",
-	})
+func TestUpdate_RefreshesStoreBehindLinks(t *testing.T) {
+	up, url := newUpstream(t, "owner-repo-abc123", map[string]string{"SKILL.md": "# v1"})
+	env := newEnv(t, url, 2)
+	if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo"}, env, skipAll); err != nil {
+		t.Fatal(err)
+	}
+	up.tarball = makeTarball(t, "owner-repo-def456", map[string]string{"SKILL.md": "# v2"})
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(tarballV2)
-	}))
-	defer srv.Close()
-
-	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skl.lock")
-
-	// Pre-populate installed state
-	os.MkdirAll(filepath.Join(installDir, "repo"), 0o755)
-	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), []byte("# Old v1"), 0o644)
-
-	lf := &lock.File{Skills: []lock.Skill{
-		{Name: "repo", Repo: "owner/repo", Path: "", Ref: "abc123", Pinned: false},
-	}}
-	lock.Save(lf, lockPath)
-
-	result, err := Update(UpdateOptions{
-		Name:     "",
-		BaseURL:  srv.URL,
-		Dirs:     []string{installDir},
-		LockPath: lockPath,
-	})
+	result, err := Update("", env, skipAll)
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-
-	if len(result.Updated) != 1 || result.Updated[0] != "repo" {
-		t.Errorf("Updated = %v, want [repo]", result.Updated)
+	if len(result.Results) != 1 || result.Results[0] != (Result{Name: "repo"}) {
+		t.Errorf("Update() results = %+v", result.Results)
 	}
-
-	// Verify file was updated
-	data, _ := os.ReadFile(filepath.Join(installDir, "repo", "SKILL.md"))
-	if !strings.Contains(string(data), "v2") {
-		t.Errorf("SKILL.md not updated, got: %s", data)
+	for _, dir := range env.Dirs {
+		assertLinked(t, dir, "repo", env.Store)
+		if got := readFile(t, filepath.Join(dir, "repo", "SKILL.md")); got != "# v2" {
+			t.Errorf("SKILL.md through %s = %q, want # v2", dir, got)
+		}
 	}
-
-	// Verify lock ref updated
-	loaded, _ := lock.Load(lockPath)
-	if loaded.Skills[0].Ref != "def456" {
-		t.Errorf("lock ref = %q, want def456", loaded.Skills[0].Ref)
+	s := loadLock(t, env).Skills[0]
+	if s.Ref != "def456" || s.Files["SKILL.md"] != sha("# v2") {
+		t.Errorf("lock entry = %+v", s)
+	}
+	if up.refs[len(up.refs)-1] != "tarball" {
+		t.Errorf("update fetched ref %q, want latest", up.refs[len(up.refs)-1])
 	}
 }
 
 func TestUpdate_WarnsOnPinnedButStillUpdates(t *testing.T) {
-	tarball := makeTarball(t, "owner-repo-new999", map[string]string{
-		"SKILL.md": "# Pinned Updated",
-	})
+	up, url := newUpstream(t, "owner-repo-old123", map[string]string{"SKILL.md": "# Old"})
+	env := newEnv(t, url, 1)
+	if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Ref: "old123", Pinned: true}, env, skipAll); err != nil {
+		t.Fatal(err)
+	}
+	up.tarball = makeTarball(t, "owner-repo-new999", map[string]string{"SKILL.md": "# New"})
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(tarball)
-	}))
-	defer srv.Close()
-
-	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skl.lock")
-
-	os.MkdirAll(filepath.Join(installDir, "repo"), 0o755)
-	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), []byte("# Old"), 0o644)
-
-	lf := &lock.File{Skills: []lock.Skill{
-		{Name: "repo", Repo: "owner/repo", Path: "", Ref: "old123", Pinned: true},
-	}}
-	lock.Save(lf, lockPath)
-
-	result, err := Update(UpdateOptions{
-		Name:     "repo",
-		BaseURL:  srv.URL,
-		Dirs:     []string{installDir},
-		LockPath: lockPath,
-	})
+	result, err := Update("repo", env, skipAll)
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-
-	// Should warn about pinned
-	if len(result.Warnings) == 0 {
-		t.Error("expected a warning for pinned skill")
+	if !slices.Equal(result.Warnings, []string{`"repo" is pinned (was at old123), updating anyway`}) {
+		t.Errorf("warnings = %v", result.Warnings)
 	}
-
-	// Should still update
-	if len(result.Updated) != 1 {
-		t.Errorf("Updated = %v, want [repo]", result.Updated)
-	}
-
-	// Should stay pinned with new ref
-	loaded, _ := lock.Load(lockPath)
-	if !loaded.Skills[0].Pinned {
-		t.Error("skill should remain pinned")
-	}
-	if loaded.Skills[0].Ref != "new999" {
-		t.Errorf("lock ref = %q, want new999", loaded.Skills[0].Ref)
-	}
-}
-
-func TestUpdate_ByAlias_FetchesAndRepatches(t *testing.T) {
-	tarballV2 := makeTarball(t, "owner-repo-def456", map[string]string{
-		"grill-me/SKILL.md":   "---\nname: grill-me\n---\n# Grill Me v2\nSee /grill-me/helpers.sh",
-		"grill-me/helpers.sh": "#!/bin/bash\n# v2",
-	})
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(tarballV2)
-	}))
-	defer srv.Close()
-
-	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skl.lock")
-
-	// Pre-populate: installed as "interview-me" via alias
-	os.MkdirAll(filepath.Join(installDir, "interview-me"), 0o755)
-	os.WriteFile(filepath.Join(installDir, "interview-me", "SKILL.md"), []byte("# old"), 0o644)
-
-	lf := &lock.File{Skills: []lock.Skill{
-		{Name: "grill-me", Repo: "owner/repo", Path: "grill-me", Ref: "abc123", Alias: "interview-me"},
-	}}
-	lock.Save(lf, lockPath)
-
-	result, err := Update(UpdateOptions{
-		Name:     "interview-me",
-		BaseURL:  srv.URL,
-		Dirs:     []string{installDir},
-		LockPath: lockPath,
-	})
-	if err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-
-	if len(result.Updated) != 1 {
-		t.Fatalf("Updated = %v, want 1 entry", result.Updated)
-	}
-
-	// Should be installed under alias directory
-	data, err := os.ReadFile(filepath.Join(installDir, "interview-me", "SKILL.md"))
-	if err != nil {
-		t.Fatalf("reading SKILL.md: %v", err)
-	}
-	content := string(data)
-
-	// Should contain v2 content
-	if !strings.Contains(content, "v2") {
-		t.Errorf("SKILL.md not updated to v2, got:\n%s", content)
-	}
-	// Frontmatter name should be patched to alias
-	if !strings.Contains(content, "name: interview-me") {
-		t.Errorf("frontmatter name not patched, got:\n%s", content)
-	}
-	// Path refs should be patched
-	if !strings.Contains(content, "/interview-me/helpers.sh") {
-		t.Errorf("path ref not patched, got:\n%s", content)
-	}
-
-	// Lock should retain alias and update ref
-	loaded, _ := lock.Load(lockPath)
-	if loaded.Skills[0].Alias != "interview-me" {
-		t.Errorf("lock alias = %q, want interview-me", loaded.Skills[0].Alias)
-	}
-	if loaded.Skills[0].Ref != "def456" {
-		t.Errorf("lock ref = %q, want def456", loaded.Skills[0].Ref)
+	s := loadLock(t, env).Skills[0]
+	if !s.Pinned || s.Ref != "new999" {
+		t.Errorf("lock entry = %+v, want pinned at new999", s)
 	}
 }
 
 func TestUpdate_SpecificSkillOnly(t *testing.T) {
-	tarball := makeTarball(t, "owner-repo-updated", map[string]string{
-		"tdd/SKILL.md": "# TDD Updated",
+	up, url := newUpstream(t, "owner-repo-v1", map[string]string{
+		"tdd/SKILL.md":   "# TDD v1",
+		"grill/SKILL.md": "# Grill v1",
+	})
+	env := newEnv(t, url, 1)
+	if _, err := InstallAll(InstallOptions{Owner: "owner", Repo: "repo"}, env, skipAll); err != nil {
+		t.Fatal(err)
+	}
+	up.tarball = makeTarball(t, "owner-repo-v2", map[string]string{
+		"tdd/SKILL.md":   "# TDD v2",
+		"grill/SKILL.md": "# Grill v2",
 	})
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(tarball)
-	}))
-	defer srv.Close()
-
-	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skl.lock")
-
-	os.MkdirAll(filepath.Join(installDir, "tdd"), 0o755)
-	os.MkdirAll(filepath.Join(installDir, "grill"), 0o755)
-	os.WriteFile(filepath.Join(installDir, "tdd", "SKILL.md"), []byte("# Old"), 0o644)
-	os.WriteFile(filepath.Join(installDir, "grill", "SKILL.md"), []byte("# Grill"), 0o644)
-
-	lf := &lock.File{Skills: []lock.Skill{
-		{Name: "tdd", Repo: "owner/repo", Path: "tdd", Ref: "old", Pinned: false},
-		{Name: "grill", Repo: "other/repo", Path: "grill", Ref: "old", Pinned: false},
-	}}
-	lock.Save(lf, lockPath)
-
-	result, err := Update(UpdateOptions{
-		Name:     "tdd",
-		BaseURL:  srv.URL,
-		Dirs:     []string{installDir},
-		LockPath: lockPath,
-	})
+	result, err := Update("tdd", env, skipAll)
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-
-	if len(result.Updated) != 1 || result.Updated[0] != "tdd" {
-		t.Errorf("Updated = %v, want [tdd]", result.Updated)
+	if len(result.Results) != 1 || result.Results[0].Name != "tdd" {
+		t.Errorf("Update() results = %+v, want [tdd]", result.Results)
 	}
-
-	// grill should be untouched
-	data, _ := os.ReadFile(filepath.Join(installDir, "grill", "SKILL.md"))
-	if string(data) != "# Grill" {
-		t.Error("grill was modified but shouldn't have been")
+	if got := readFile(t, filepath.Join(env.Dirs[0], "grill", "SKILL.md")); got != "# Grill v1" {
+		t.Errorf("grill = %q, want untouched", got)
+	}
+	if got := readFile(t, filepath.Join(env.Dirs[0], "tdd", "SKILL.md")); got != "# TDD v2" {
+		t.Errorf("tdd = %q, want v2", got)
 	}
 }
 
-func TestUpdate_DetectsModificationsAndDoesNotOverwrite(t *testing.T) {
-	tarballV2 := makeTarball(t, "owner-repo-def456", map[string]string{
-		"SKILL.md": "# Updated Skill v2",
-	})
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(tarballV2)
-	}))
-	defer srv.Close()
-
-	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skl.lock")
-
-	// Pre-install: write the original file and store its checksum in lock
-	os.MkdirAll(filepath.Join(installDir, "repo"), 0o755)
-	originalContent := []byte("# Original v1")
-	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), originalContent, 0o644)
-	checksums, _ := computeChecksums(filepath.Join(installDir, "repo"))
-
-	lf := &lock.File{Skills: []lock.Skill{
-		{Name: "repo", Repo: "owner/repo", Path: "", Ref: "abc123", Pinned: false, Files: checksums},
-	}}
-	lock.Save(lf, lockPath)
-
-	// User modifies the file locally
-	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), []byte("# User's custom version"), 0o644)
-
-	result, err := Update(UpdateOptions{
-		Name:     "",
-		BaseURL:  srv.URL,
-		Dirs:     []string{installDir},
-		LockPath: lockPath,
-		Force:    false,
-	})
-	if err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-
-	// Should NOT have updated
-	if len(result.Updated) != 0 {
-		t.Errorf("expected no updates, got %v", result.Updated)
-	}
-
-	// Should report modifications
-	if len(result.Modifications) != 1 {
-		t.Fatalf("expected 1 skill with modifications, got %d", len(result.Modifications))
-	}
-	if result.Modifications[0].SkillName != "repo" {
-		t.Errorf("modification skill = %q, want %q", result.Modifications[0].SkillName, "repo")
-	}
-	if len(result.Modifications[0].Dirs) != 1 {
-		t.Fatalf("expected 1 dir modification, got %d", len(result.Modifications[0].Dirs))
-	}
-
-	// File should still be the user's version
-	data, _ := os.ReadFile(filepath.Join(installDir, "repo", "SKILL.md"))
-	if string(data) != "# User's custom version" {
-		t.Errorf("file was overwritten! got: %s", data)
+func TestUpdate_ErrorsOnUnknownSkill(t *testing.T) {
+	env := newEnv(t, "", 1)
+	if _, err := Update("nope", env, skipAll); err == nil {
+		t.Fatal("Update() should error for a skill not in the lock")
 	}
 }
 
-func TestUpdate_ForceTrueOverwritesModifications(t *testing.T) {
-	tarballV2 := makeTarball(t, "owner-repo-def456", map[string]string{
-		"SKILL.md": "# Updated Skill v2",
+func TestUpdate_StoreEditedConflict(t *testing.T) {
+	setup := func(t *testing.T) (Env, string) {
+		up, url := newUpstream(t, "owner-repo-abc123", map[string]string{"SKILL.md": "# v1"})
+		env := newEnv(t, url, 1)
+		if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo"}, env, skipAll); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(env.Dirs[0], "repo", "SKILL.md"), "# edited through the link")
+		up.tarball = makeTarball(t, "owner-repo-def456", map[string]string{"SKILL.md": "# v2"})
+		return env, filepath.Join(env.Store, "repo")
+	}
+
+	t.Run("skip", func(t *testing.T) {
+		env, store := setup(t)
+		r := &recorder{resolution: Skip}
+
+		result, err := Update("", env, r.resolve)
+		if err != nil {
+			t.Fatalf("Update() error = %v", err)
+		}
+		if len(result.Results) != 1 || result.Results[0] != (Result{Name: "repo", Skipped: true}) {
+			t.Errorf("Update() results = %+v, want repo skipped", result.Results)
+		}
+		if len(r.calls) != 1 || len(r.calls[0]) != 1 {
+			t.Fatalf("resolver calls = %+v", r.calls)
+		}
+		if c := r.calls[0][0]; c.Kind != StoreEdited || c.Path != store || !slices.Equal(c.Files, []string{"SKILL.md"}) {
+			t.Errorf("conflict = %+v", c)
+		}
+		if got := readFile(t, filepath.Join(store, "SKILL.md")); got != "# edited through the link" {
+			t.Errorf("store SKILL.md = %q, want the edit kept", got)
+		}
+		if ref := loadLock(t, env).Skills[0].Ref; ref != "abc123" {
+			t.Errorf("lock ref = %q, want abc123", ref)
+		}
 	})
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(tarballV2)
-	}))
-	defer srv.Close()
+	t.Run("overwrite", func(t *testing.T) {
+		env, store := setup(t)
 
-	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skl.lock")
-
-	// Pre-install with checksums
-	os.MkdirAll(filepath.Join(installDir, "repo"), 0o755)
-	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), []byte("# Original v1"), 0o644)
-	checksums, _ := computeChecksums(filepath.Join(installDir, "repo"))
-
-	lf := &lock.File{Skills: []lock.Skill{
-		{Name: "repo", Repo: "owner/repo", Path: "", Ref: "abc123", Pinned: false, Files: checksums},
-	}}
-	lock.Save(lf, lockPath)
-
-	// User modifies locally
-	os.WriteFile(filepath.Join(installDir, "repo", "SKILL.md"), []byte("# User's custom"), 0o644)
-
-	result, err := Update(UpdateOptions{
-		Name:     "",
-		BaseURL:  srv.URL,
-		Dirs:     []string{installDir},
-		LockPath: lockPath,
-		Force:    true,
+		if _, err := Update("", env, func(string, []Conflict) Resolution { return Overwrite }); err != nil {
+			t.Fatalf("Update() error = %v", err)
+		}
+		if got := readFile(t, filepath.Join(store, "SKILL.md")); got != "# v2" {
+			t.Errorf("store SKILL.md = %q, want # v2", got)
+		}
+		if ref := loadLock(t, env).Skills[0].Ref; ref != "def456" {
+			t.Errorf("lock ref = %q, want def456", ref)
+		}
+		entries, _ := os.ReadDir(env.Store)
+		if len(entries) != 1 {
+			t.Errorf("store has %d entries, want no leftover temp dirs", len(entries))
+		}
 	})
-	if err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-
-	// Should have updated despite modifications
-	if len(result.Updated) != 1 || result.Updated[0] != "repo" {
-		t.Errorf("Updated = %v, want [repo]", result.Updated)
-	}
-
-	// File should be the new version
-	data, _ := os.ReadFile(filepath.Join(installDir, "repo", "SKILL.md"))
-	if string(data) != "# Updated Skill v2" {
-		t.Errorf("file not updated, got: %s", data)
-	}
 }
