@@ -161,3 +161,18 @@ func TestLoad_ReadsLegacyPinnedField(t *testing.T) {
 		t.Errorf("pinned entry = %+v, want declared and resolved def5678", got)
 	}
 }
+
+func TestLoad_TrimsTrailingSlashFromLegacyPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "skl.lock")
+	os.WriteFile(path, []byte(`{"skills": [
+  {"name": "jfrog", "repo": "owner/repo", "path": "skills/jfrog/", "ref": "fef9cee", "pinned": true}
+]}`), 0o644)
+
+	lf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := lf.Skills[0].Path; got != "skills/jfrog" {
+		t.Errorf("Path = %q, want %q", got, "skills/jfrog")
+	}
+}

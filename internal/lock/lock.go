@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Skill struct {
@@ -81,9 +82,10 @@ func Load(path string) (*File, error) {
 	}
 	f := &File{}
 	for _, s := range legacy.Skills {
-		// Entries written before commit existed kept the resolved SHA in ref.
+		// Entries written before commit existed kept the resolved SHA in ref and the path as typed.
 		if s.Commit == "" {
 			s.Commit = s.Ref
+			s.Path = strings.Trim(s.Path, "/")
 			if !s.Pinned {
 				s.Ref = ""
 			}
