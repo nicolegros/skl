@@ -101,6 +101,22 @@ skills: {}
 	}
 }
 
+func TestLoad_SeedsFromLockWhenConfigYamlIsMissing(t *testing.T) {
+	dir := setup(t)
+	write(t, filepath.Join(dir, "skl.lock"), `{"skills": [
+  {"name": "tdd", "repo": "owner/repo", "path": "tdd", "ref": "abc1234", "pinned": false, "links": []}
+]}`)
+
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	want := defaultDirectories + "skills:\n  tdd: owner/repo/tdd\n"
+	if got := read(t, filepath.Join(dir, "skl.yaml")); got != want {
+		t.Errorf("skl.yaml =\n%s\nwant\n%s", got, want)
+	}
+}
+
 func TestLoad_ReadsManifest(t *testing.T) {
 	dir := setup(t)
 	write(t, filepath.Join(dir, "skl.yaml"), `directories:

@@ -75,24 +75,25 @@ func Load() (*Config, error) {
 	return parse(path, string(data))
 }
 
-// migrate writes skl.yaml from config.yaml plus one skills entry per lock entry, then deletes config.yaml.
+// migrate writes skl.yaml from config.yaml (or defaults) plus one skills entry per lock entry, then deletes config.yaml.
 func migrate(path string) (*Config, error) {
 	legacy := filepath.Join(filepath.Dir(path), "config.yaml")
 	text := defaultDirectories
-	skills := map[string]Source{}
 	data, err := os.ReadFile(legacy)
 	switch {
 	case err == nil:
 		text = string(data)
-		lf, err := lock.Load(LockPath())
-		if err != nil {
-			return nil, err
-		}
-		for _, s := range lf.Skills {
-			skills[s.InstalledName()] = Source{Repo: s.Repo, Path: s.Path, Ref: s.Ref}
-		}
 	case !os.IsNotExist(err):
 		return nil, err
+	}
+	// Seed even without config.yaml: an empty skills map would prune everything already installed.
+	lf, err := lock.Load(LockPath())
+	if err != nil {
+		return nil, err
+	}
+	skills := map[string]Source{}
+	for _, s := range lf.Skills {
+		skills[s.InstalledName()] = Source{Repo: s.Repo, Path: s.Path, Ref: s.Ref}
 	}
 
 	c, err := parse(legacy, text)
