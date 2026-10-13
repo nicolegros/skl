@@ -2,9 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
 
-	"github.com/nicolegros/skl/internal/config"
 	"github.com/nicolegros/skl/internal/skills"
 	"github.com/spf13/cobra"
 )
@@ -16,9 +14,7 @@ func newList() *cobra.Command {
 		Short:   "List installed skills",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			lockPath := filepath.Join(config.Dir(), "skl.lock")
-
-			entries, err := skills.List(skills.ListOptions{LockPath: lockPath})
+			entries, err := skills.List(skills.ListOptions{LockPath: lockPath()})
 			if err != nil {
 				return err
 			}

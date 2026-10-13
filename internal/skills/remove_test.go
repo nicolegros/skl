@@ -8,85 +8,74 @@ import (
 	"github.com/nicolegros/skl/internal/lock"
 )
 
-func TestRemove_DeletesFromDirsAndLock(t *testing.T) {
-	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skl.lock")
-
-	// Pre-populate
-	os.MkdirAll(filepath.Join(installDir, "tdd"), 0o755)
-	os.WriteFile(filepath.Join(installDir, "tdd", "SKILL.md"), []byte("# TDD"), 0o644)
-
-	lf := &lock.File{Skills: []lock.Skill{
-		{Name: "tdd", Repo: "owner/repo", Path: "tdd", Ref: "abc", Pinned: false},
-	}}
-	lock.Save(lf, lockPath)
-
-	err := Remove(RemoveOptions{
-		Name:     "tdd",
-		Dirs:     []string{installDir},
-		LockPath: lockPath,
+func TestRemove_DeletesLinksStoreAndLockEntry(t *testing.T) {
+	_, url := newUpstream(t, "owner-repo-abc123", map[string]string{
+		"grill-me/SKILL.md": "---\nname: grill-me\n---\n",
 	})
-	if err != nil {
+	env := newEnv(t, url, 2)
+	if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Path: "grill-me", Alias: "interview-me"}, env, skipAll); err != nil {
+		t.Fatal(err)
+	}
+	foreignTarget := t.TempDir()
+	foreign := filepath.Join(env.Dirs[1], "interview-me")
+	os.Remove(foreign)
+	os.Symlink(foreignTarget, foreign)
+	unrelated := filepath.Join(env.Dirs[0], "unrelated", "SKILL.md")
+	writeFile(t, unrelated, "# Unrelated")
+	r := &recorder{}
+
+	if err := Remove("interview-me", env, r.resolve); err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
 
-	// Directory should be gone
-	if _, err := os.Stat(filepath.Join(installDir, "tdd")); !os.IsNotExist(err) {
-		t.Error("tdd directory still exists")
+	if _, err := os.Lstat(filepath.Join(env.Dirs[0], "interview-me")); !os.IsNotExist(err) {
+		t.Error("our link still exists")
 	}
-
-	// Lock should be empty
-	loaded, _ := lock.Load(lockPath)
-	if len(loaded.Skills) != 0 {
-		t.Errorf("lock still has %d skills", len(loaded.Skills))
+	if _, err := os.Stat(filepath.Join(env.Store, "interview-me")); !os.IsNotExist(err) {
+		t.Error("store dir still exists")
+	}
+	if target, _ := os.Readlink(foreign); target != foreignTarget {
+		t.Errorf("foreign link -> %q, want untouched", target)
+	}
+	if readFile(t, unrelated) != "# Unrelated" {
+		t.Error("unrelated skill changed")
+	}
+	if len(r.calls) != 0 {
+		t.Errorf("resolver called with %+v", r.calls)
+	}
+	if lf := loadLock(t, env); len(lf.Skills) != 0 {
+		t.Errorf("lock still has %+v", lf.Skills)
 	}
 }
 
 func TestRemove_ErrorsOnUnknownSkill(t *testing.T) {
-	lockPath := filepath.Join(t.TempDir(), "skl.lock")
-	lock.Save(&lock.File{}, lockPath)
-
-	err := Remove(RemoveOptions{
-		Name:     "nonexistent",
-		Dirs:     []string{t.TempDir()},
-		LockPath: lockPath,
-	})
-	if err == nil {
+	if err := Remove("nonexistent", newEnv(t, "", 1), skipAll); err == nil {
 		t.Fatal("Remove() should error for unknown skill")
 	}
 }
 
-func TestRemove_ByAlias_DeletesFromDirsAndLock(t *testing.T) {
-	installDir := t.TempDir()
-	lockPath := filepath.Join(t.TempDir(), "skl.lock")
+func TestRemove_LegacyCopyGoesThroughResolver(t *testing.T) {
+	for _, tc := range []struct {
+		resolution Resolution
+		kept       bool
+	}{{Skip, true}, {Overwrite, false}} {
+		env := newEnv(t, "", 1)
+		lock.Save(&lock.File{Skills: []lock.Skill{{Name: "tdd", Repo: "owner/repo", Path: "tdd", Ref: "abc"}}}, env.Lock)
+		copyPath := filepath.Join(env.Dirs[0], "tdd")
+		writeFile(t, filepath.Join(copyPath, "SKILL.md"), "# TDD")
+		r := &recorder{resolution: tc.resolution}
 
-	// Pre-populate: skill installed under alias "interview-me"
-	os.MkdirAll(filepath.Join(installDir, "interview-me"), 0o755)
-	os.WriteFile(filepath.Join(installDir, "interview-me", "SKILL.md"), []byte("# Interview Me"), 0o644)
-
-	lf := &lock.File{Skills: []lock.Skill{
-		{Name: "grill-me", Repo: "owner/repo", Path: "grill-me", Ref: "abc", Alias: "interview-me"},
-	}}
-	lock.Save(lf, lockPath)
-
-	// Remove by alias name
-	err := Remove(RemoveOptions{
-		Name:     "interview-me",
-		Dirs:     []string{installDir},
-		LockPath: lockPath,
-	})
-	if err != nil {
-		t.Fatalf("Remove() error = %v", err)
-	}
-
-	// Directory should be gone
-	if _, err := os.Stat(filepath.Join(installDir, "interview-me")); !os.IsNotExist(err) {
-		t.Error("interview-me directory still exists")
-	}
-
-	// Lock should be empty
-	loaded, _ := lock.Load(lockPath)
-	if len(loaded.Skills) != 0 {
-		t.Errorf("lock still has %d skills", len(loaded.Skills))
+		if err := Remove("tdd", env, r.resolve); err != nil {
+			t.Fatalf("Remove() error = %v", err)
+		}
+		if len(r.calls) != 1 || len(r.calls[0]) != 1 || r.calls[0][0].Kind != LocalDir || r.calls[0][0].Path != copyPath {
+			t.Errorf("resolution %v: resolver calls = %+v", tc.resolution, r.calls)
+		}
+		if _, err := os.Stat(copyPath); (err == nil) != tc.kept {
+			t.Errorf("resolution %v: copy exists = %v, want %v", tc.resolution, err == nil, tc.kept)
+		}
+		if lf := loadLock(t, env); len(lf.Skills) != 0 {
+			t.Errorf("resolution %v: lock still has %+v", tc.resolution, lf.Skills)
+		}
 	}
 }

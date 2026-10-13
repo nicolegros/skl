@@ -2,9 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
 
-	"github.com/nicolegros/skl/internal/config"
 	"github.com/nicolegros/skl/internal/skills"
 	"github.com/spf13/cobra"
 )
@@ -15,20 +13,12 @@ func newRemove() *cobra.Command {
 		Short: "Remove an installed skill",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
+			env, err := loadEnv()
 			if err != nil {
 				return err
 			}
 
-			dirs := cfg.Directories
-
-			lockPath := filepath.Join(config.Dir(), "skl.lock")
-
-			if err := skills.Remove(skills.RemoveOptions{
-				Name:     args[0],
-				Dirs:     dirs,
-				LockPath: lockPath,
-			}); err != nil {
+			if err := skills.Remove(args[0], env, resolver(false, env)); err != nil {
 				return err
 			}
 
