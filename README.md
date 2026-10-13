@@ -54,6 +54,7 @@ Invalid YAML, a source that does not parse, or an empty name stops the command w
 
 Earlier versions kept `directories` in `config.yaml` and the installed skills only in the lock file.
 The first command after upgrading writes `skl.yaml` from the text of `config.yaml`, comments included, plus one `skills` entry per lock entry, then deletes `config.yaml`.
+Without a `config.yaml`, it starts from the default directories and still lists every skill in the lock.
 A skill installed with `--ref` keeps that ref in its entry.
 Nothing else changes on disk, so the next `skl install` has nothing to do.
 
@@ -193,7 +194,9 @@ When it finds any, it prompts once per skill:
 - **[o]verwrite** - overwrite without backup
 - **[s]kip** - leave it unchanged
 
-Removing a skill whose store copy you edited goes through the same prompt; skipping keeps the skill installed and asks again on the next run.
+Removing a skill whose store copy you edited goes through the same prompt.
+With `skl remove`, skipping keeps the skill and its `skl.yaml` entry.
+After deleting the entry by hand, skipping keeps the skill installed and asks again on the next run.
 Use `--force` on `install` or `update` to skip this prompt and overwrite immediately.
 
 Backups go to `$XDG_DATA_HOME/skl/backups/<name>/<timestamp>/`, followed by the full original path.
