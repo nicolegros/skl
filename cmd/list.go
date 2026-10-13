@@ -42,7 +42,8 @@ func newList() *cobra.Command {
 
 			for _, e := range entries {
 				source := e.Source.String()
-				if e.Commit != "" {
+				// A legacy tag pin locked the tag itself, which the source already shows.
+				if e.Commit != "" && e.Commit != e.Source.Ref {
 					source += " " + e.Commit[:min(7, len(e.Commit))]
 				}
 				unlinked := ""
