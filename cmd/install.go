@@ -46,12 +46,11 @@ func newInstall() *cobra.Command {
 			}
 
 			opts := skills.InstallOptions{
-				Owner:  owner,
-				Repo:   repo,
-				Path:   path,
-				Ref:    ref,
-				Pinned: ref != "",
-				Alias:  as,
+				Owner: owner,
+				Repo:  repo,
+				Path:  path,
+				Ref:   ref,
+				Alias: as,
 			}
 
 			var results []skills.Result

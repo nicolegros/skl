@@ -14,7 +14,7 @@ import (
 func legacyInstall(t *testing.T, env Env, content string) {
 	t.Helper()
 	lock.Save(&lock.File{Skills: []lock.Skill{
-		{Name: "repo", Repo: "owner/repo", Ref: "abc123", Files: map[string]string{"SKILL.md": sha(content)}},
+		{Name: "repo", Repo: "owner/repo", Commit: "abc123", Files: map[string]string{"SKILL.md": sha(content)}},
 	}}, env.Lock)
 	for _, dir := range env.Dirs {
 		writeFile(t, filepath.Join(dir, "repo", "SKILL.md"), content)
@@ -40,7 +40,7 @@ func TestReconcile_MigratesIdenticalCopiesWithoutPrompting(t *testing.T) {
 	for _, dir := range env.Dirs {
 		assertLinked(t, dir, "repo", env.Store)
 	}
-	if s := loadLock(t, env).Skills[0]; !slices.Equal(s.Links, env.Dirs) || s.Ref != "abc123" {
+	if s := loadLock(t, env).Skills[0]; !slices.Equal(s.Links, env.Dirs) || s.Commit != "abc123" {
 		t.Errorf("lock entry = %+v", s)
 	}
 }

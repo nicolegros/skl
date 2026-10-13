@@ -29,7 +29,7 @@ func TestUpdate_RefreshesStoreBehindLinks(t *testing.T) {
 		}
 	}
 	s := loadLock(t, env).Skills[0]
-	if s.Ref != "def456" || s.Files["SKILL.md"] != sha("# v2") {
+	if s.Commit != "def456" || s.Files["SKILL.md"] != sha("# v2") {
 		t.Errorf("lock entry = %+v", s)
 	}
 	if up.refs[len(up.refs)-1] != "tarball" {
@@ -37,24 +37,22 @@ func TestUpdate_RefreshesStoreBehindLinks(t *testing.T) {
 	}
 }
 
-func TestUpdate_WarnsOnPinnedButStillUpdates(t *testing.T) {
+func TestUpdate_ResolvesDeclaredRef(t *testing.T) {
 	up, url := newUpstream(t, "owner-repo-old123", map[string]string{"SKILL.md": "# Old"})
 	env := newEnv(t, url, 1)
-	if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Ref: "old123", Pinned: true}, env, skipAll); err != nil {
+	if _, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Ref: "v1"}, env, skipAll); err != nil {
 		t.Fatal(err)
 	}
 	up.tarball = makeTarball(t, "owner-repo-new999", map[string]string{"SKILL.md": "# New"})
 
-	result, err := Update("repo", env, skipAll)
-	if err != nil {
+	if _, err := Update("repo", env, skipAll); err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if !slices.Equal(result.Warnings, []string{`"repo" is pinned (was at old123), updating anyway`}) {
-		t.Errorf("warnings = %v", result.Warnings)
+	if !slices.Equal(up.refs, []string{"v1", "v1"}) {
+		t.Errorf("fetched refs = %v, want the declared ref each time", up.refs)
 	}
-	s := loadLock(t, env).Skills[0]
-	if !s.Pinned || s.Ref != "new999" {
-		t.Errorf("lock entry = %+v, want pinned at new999", s)
+	if s := loadLock(t, env).Skills[0]; s.Ref != "v1" || s.Commit != "new999" {
+		t.Errorf("lock entry = %+v, want v1 at new999", s)
 	}
 }
 
@@ -126,7 +124,7 @@ func TestUpdate_StoreEditedConflict(t *testing.T) {
 		if got := readFile(t, filepath.Join(store, "SKILL.md")); got != "# edited through the link" {
 			t.Errorf("store SKILL.md = %q, want the edit kept", got)
 		}
-		if ref := loadLock(t, env).Skills[0].Ref; ref != "abc123" {
+		if ref := loadLock(t, env).Skills[0].Commit; ref != "abc123" {
 			t.Errorf("lock ref = %q, want abc123", ref)
 		}
 	})
@@ -140,7 +138,7 @@ func TestUpdate_StoreEditedConflict(t *testing.T) {
 		if got := readFile(t, filepath.Join(store, "SKILL.md")); got != "# v2" {
 			t.Errorf("store SKILL.md = %q, want # v2", got)
 		}
-		if ref := loadLock(t, env).Skills[0].Ref; ref != "def456" {
+		if ref := loadLock(t, env).Skills[0].Commit; ref != "def456" {
 			t.Errorf("lock ref = %q, want def456", ref)
 		}
 		entries, _ := os.ReadDir(env.Store)

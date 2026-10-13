@@ -16,12 +16,11 @@ import (
 )
 
 type InstallOptions struct {
-	Owner  string
-	Repo   string
-	Path   string // subdirectory within repo, empty for root
-	Ref    string
-	Pinned bool
-	Alias  string // install under a different name
+	Owner string
+	Repo  string
+	Path  string // subdirectory within repo, empty for root
+	Ref   string // declared branch, tag, or SHA; empty for the default branch
+	Alias string // install under a different name
 }
 
 // Result reports one skill a command acted on.
@@ -31,8 +30,8 @@ type Result struct {
 }
 
 // fetchAndExtract downloads a tarball and extracts it to a temp directory.
-// Returns the extracted root path, resolved ref, and a cleanup function.
-func fetchAndExtract(baseURL, owner, repo, ref, token string) (extractedRoot, resolvedRef string, cleanup func(), err error) {
+// Returns the extracted root path, the commit it resolved to, and a cleanup function.
+func fetchAndExtract(baseURL, owner, repo, ref, token string) (extractedRoot, commit string, cleanup func(), err error) {
 	url := fmt.Sprintf("%s/repos/%s/%s/tarball/%s", baseURL, owner, repo, ref)
 	req, _ := http.NewRequest("GET", url, nil)
 	if token != "" {
@@ -71,16 +70,13 @@ func fetchAndExtract(baseURL, owner, repo, ref, token string) (extractedRoot, re
 
 	extractedRoot = filepath.Join(tmpDir, entries[0].Name())
 
-	// Resolve ref from tarball prefix if not specified (format: owner-repo-SHA)
-	resolvedRef = ref
-	if resolvedRef == "" {
-		parts := strings.Split(entries[0].Name(), "-")
-		if len(parts) >= 3 {
-			resolvedRef = parts[len(parts)-1]
-		}
+	// The tarball prefix is owner-repo-SHA whatever ref was asked for.
+	parts := strings.Split(entries[0].Name(), "-")
+	if len(parts) < 3 {
+		cleanup()
+		return "", "", nil, fmt.Errorf("unexpected tarball prefix %q", entries[0].Name())
 	}
-
-	return extractedRoot, resolvedRef, cleanup, nil
+	return extractedRoot, parts[len(parts)-1], cleanup, nil
 }
 
 // fetcher downloads each repo@ref once per command.
@@ -91,15 +87,15 @@ type fetcher struct {
 }
 
 type fetchedRoot struct {
-	dir string
-	ref string
+	dir    string
+	commit string
 }
 
 func newFetcher(env Env) *fetcher {
 	return &fetcher{env: env, roots: map[string]fetchedRoot{}}
 }
 
-// fetch returns the skill directory at path within repo@ref and the resolved ref.
+// fetch returns the skill directory at path within repo@ref and the commit ref resolved to.
 func (f *fetcher) fetch(repo, ref, path string) (string, string, error) {
 	key := repo + "@" + ref
 	root, ok := f.roots[key]
@@ -108,19 +104,19 @@ func (f *fetcher) fetch(repo, ref, path string) (string, string, error) {
 		if !found {
 			return "", "", fmt.Errorf("invalid repo in lock: %s", repo)
 		}
-		dir, resolved, cleanup, err := fetchAndExtract(f.env.BaseURL, owner, name, ref, f.env.Token)
+		dir, commit, cleanup, err := fetchAndExtract(f.env.BaseURL, owner, name, ref, f.env.Token)
 		if err != nil {
 			return "", "", err
 		}
 		f.cleanups = append(f.cleanups, cleanup)
-		root = fetchedRoot{dir: dir, ref: resolved}
+		root = fetchedRoot{dir: dir, commit: commit}
 		f.roots[key] = root
 	}
 	dir := filepath.Join(root.dir, path)
 	if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err != nil {
 		return "", "", fmt.Errorf("no SKILL.md found in %s", path)
 	}
-	return dir, root.ref, nil
+	return dir, root.commit, nil
 }
 
 func (f *fetcher) cleanup() {
@@ -159,12 +155,12 @@ func reconcile(lf *lock.File, env Env, resolve Resolver, except string) error {
 		}
 		var src *fetched
 		if !exists(filepath.Join(env.Store, name)) {
-			env.logf("Fetching %s from %s@%s", name, entry.Repo, entry.Ref)
-			dir, ref, err := f.fetch(entry.Repo, entry.Ref, entry.Path)
+			env.logf("Fetching %s from %s@%s", name, entry.Repo, entry.Commit)
+			dir, commit, err := f.fetch(entry.Repo, entry.Commit, entry.Path)
 			if err != nil {
 				return fmt.Errorf("fetching %s: %w", name, err)
 			}
-			src = &fetched{dir: dir, ref: ref, pinned: entry.Pinned}
+			src = &fetched{dir: dir, commit: commit}
 		}
 		updated, _, err := sync(entry, src, env, r)
 		if err != nil {
@@ -187,7 +183,7 @@ func Install(opts InstallOptions, env Env, resolve Resolver) (Result, error) {
 
 	f := newFetcher(env)
 	defer f.cleanup()
-	srcDir, ref, err := f.fetch(opts.Owner+"/"+opts.Repo, opts.Ref, opts.Path)
+	srcDir, commit, err := f.fetch(opts.Owner+"/"+opts.Repo, opts.Ref, opts.Path)
 	if err != nil {
 		return Result{}, err
 	}
@@ -196,7 +192,7 @@ func Install(opts InstallOptions, env Env, resolve Resolver) (Result, error) {
 	if opts.Path != "" {
 		skillName = filepath.Base(opts.Path)
 	}
-	entry := lock.Skill{Name: skillName, Repo: opts.Owner + "/" + opts.Repo, Path: opts.Path, Alias: opts.Alias}
+	entry := lock.Skill{Name: skillName, Repo: opts.Owner + "/" + opts.Repo, Path: opts.Path, Ref: opts.Ref, Alias: opts.Alias}
 	existing, found := lf.Get(entry.InstalledName())
 	if opts.Alias != "" {
 		ownedByOther := found && (existing.Name != entry.Name || existing.Repo != entry.Repo || existing.Path != entry.Path)
@@ -205,10 +201,10 @@ func Install(opts InstallOptions, env Env, resolve Resolver) (Result, error) {
 		}
 	}
 	if found {
-		entry.Ref, entry.Pinned, entry.Files, entry.Links = existing.Ref, existing.Pinned, existing.Files, existing.Links
+		entry.Commit, entry.Files, entry.Links = existing.Commit, existing.Files, existing.Links
 	}
 
-	updated, wrote, err := sync(entry, &fetched{dir: srcDir, ref: ref, pinned: opts.Pinned}, env, resolve)
+	updated, wrote, err := sync(entry, &fetched{dir: srcDir, commit: commit}, env, resolve)
 	if err != nil {
 		return Result{}, errors.Join(err, lock.Save(lf, env.Lock))
 	}
@@ -226,7 +222,7 @@ func InstallAll(opts InstallOptions, env Env, resolve Resolver) ([]Result, error
 		return nil, errors.Join(err, lock.Save(lf, env.Lock))
 	}
 
-	extractedRoot, resolvedRef, cleanup, err := fetchAndExtract(env.BaseURL, opts.Owner, opts.Repo, opts.Ref, env.Token)
+	extractedRoot, commit, cleanup, err := fetchAndExtract(env.BaseURL, opts.Owner, opts.Repo, opts.Ref, env.Token)
 	if err != nil {
 		return nil, err
 	}
@@ -246,11 +242,11 @@ func InstallAll(opts InstallOptions, env Env, resolve Resolver) ([]Result, error
 		if path == "." {
 			path = ""
 		}
-		entry := lock.Skill{Name: skill.Name, Repo: opts.Owner + "/" + opts.Repo, Path: path}
+		entry := lock.Skill{Name: skill.Name, Repo: opts.Owner + "/" + opts.Repo, Path: path, Ref: opts.Ref}
 		if existing, ok := lf.Get(skill.Name); ok {
-			entry.Ref, entry.Pinned, entry.Files, entry.Links = existing.Ref, existing.Pinned, existing.Files, existing.Links
+			entry.Commit, entry.Files, entry.Links = existing.Commit, existing.Files, existing.Links
 		}
-		src := &fetched{dir: filepath.Join(extractedRoot, skill.Path), ref: resolvedRef, pinned: opts.Pinned}
+		src := &fetched{dir: filepath.Join(extractedRoot, skill.Path), commit: commit}
 		updated, wrote, err := sync(entry, src, env, resolve)
 		if err != nil {
 			return results, errors.Join(fmt.Errorf("installing %s: %w", skill.Name, err), lock.Save(lf, env.Lock))

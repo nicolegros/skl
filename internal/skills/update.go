@@ -8,11 +8,10 @@ import (
 )
 
 type UpdateResult struct {
-	Results  []Result
-	Warnings []string
+	Results []Result
 }
 
-// Update refreshes installed skills from their upstream repos. An empty name updates all.
+// Update re-resolves the declared ref of installed skills. An empty name updates all.
 func Update(name string, env Env, resolve Resolver) (*UpdateResult, error) {
 	lf, err := lock.Load(env.Lock)
 	if err != nil {
@@ -36,15 +35,11 @@ func Update(name string, env Env, resolve Resolver) (*UpdateResult, error) {
 		if name != "" && installed != name {
 			continue
 		}
-		if entry.Pinned {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("%q is pinned (was at %s), updating anyway", installed, entry.Ref))
-		}
-
-		dir, ref, err := f.fetch(entry.Repo, "", entry.Path)
+		dir, commit, err := f.fetch(entry.Repo, entry.Ref, entry.Path)
 		if err != nil {
 			return result, errors.Join(fmt.Errorf("updating %s: %w", installed, err), lock.Save(lf, env.Lock))
 		}
-		updated, wrote, err := sync(entry, &fetched{dir: dir, ref: ref, pinned: entry.Pinned}, env, resolve)
+		updated, wrote, err := sync(entry, &fetched{dir: dir, commit: commit}, env, resolve)
 		if err != nil {
 			return result, errors.Join(fmt.Errorf("updating %s: %w", installed, err), lock.Save(lf, env.Lock))
 		}

@@ -38,15 +38,11 @@ func newList() *cobra.Command {
 			}
 
 			for _, e := range entries {
-				pin := ""
-				if e.Pinned {
-					pin = " (pinned)"
-				}
 				unlinked := ""
 				if len(e.Unlinked) > 0 {
 					unlinked = " (unlinked: " + strings.Join(e.Unlinked, ", ") + ")"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%-*s   %s@%s%s%s\n", maxName, e.DisplayName, e.Source, e.Ref[:min(7, len(e.Ref))], pin, unlinked)
+				fmt.Fprintf(cmd.OutOrStdout(), "%-*s   %s@%s%s\n", maxName, e.DisplayName, e.Source, e.Commit[:min(7, len(e.Commit))], unlinked)
 			}
 			return nil
 		},

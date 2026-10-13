@@ -24,7 +24,7 @@ func TestSave_WritesAndLoadsBack(t *testing.T) {
 	path := filepath.Join(dir, "skl.lock")
 
 	lf := &File{Skills: []Skill{
-		{Name: "grill-me", Repo: "owner/repo", Path: "grill-me", Ref: "abc123", Pinned: false},
+		{Name: "grill-me", Repo: "owner/repo", Path: "grill-me", Ref: "v1", Commit: "abc123"},
 	}}
 
 	if err := Save(lf, path); err != nil {
@@ -40,7 +40,7 @@ func TestSave_WritesAndLoadsBack(t *testing.T) {
 		t.Fatalf("got %d skills, want 1", len(loaded.Skills))
 	}
 	s := loaded.Skills[0]
-	if s.Name != "grill-me" || s.Repo != "owner/repo" || s.Ref != "abc123" || s.Pinned != false {
+	if s.Name != "grill-me" || s.Repo != "owner/repo" || s.Ref != "v1" || s.Commit != "abc123" {
 		t.Errorf("got %+v", s)
 	}
 
@@ -53,16 +53,16 @@ func TestSave_WritesAndLoadsBack(t *testing.T) {
 func TestFile_Add(t *testing.T) {
 	f := &File{}
 
-	f.Add(Skill{Name: "tdd", Repo: "owner/repo", Path: "tdd", Ref: "abc", Pinned: false})
+	f.Add(Skill{Name: "tdd", Repo: "owner/repo", Path: "tdd", Commit: "abc"})
 
 	if len(f.Skills) != 1 || f.Skills[0].Name != "tdd" {
 		t.Errorf("Add() skills = %v", f.Skills)
 	}
 
 	// Adding same name replaces
-	f.Add(Skill{Name: "tdd", Repo: "owner/repo", Path: "tdd", Ref: "def", Pinned: true})
+	f.Add(Skill{Name: "tdd", Repo: "owner/repo", Path: "tdd", Commit: "def"})
 
-	if len(f.Skills) != 1 || f.Skills[0].Ref != "def" || !f.Skills[0].Pinned {
+	if len(f.Skills) != 1 || f.Skills[0].Commit != "def" {
 		t.Errorf("Add() did not replace: %+v", f.Skills[0])
 	}
 }
@@ -140,5 +140,24 @@ func TestSave_DistinguishesEmptyLinksFromLegacy(t *testing.T) {
 	}
 	if l := loaded.Skills[2].Links; l != nil {
 		t.Errorf("legacy Links = %#v, want nil", l)
+	}
+}
+
+func TestLoad_ReadsLegacyPinnedField(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "skl.lock")
+	os.WriteFile(path, []byte(`{"skills": [
+  {"name": "tdd", "repo": "owner/repo", "path": "tdd", "ref": "abc1234", "pinned": false},
+  {"name": "grill", "repo": "owner/repo", "path": "grill", "ref": "def5678", "pinned": true}
+]}`), 0o644)
+
+	lf, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := lf.Skills[0]; got.Ref != "" || got.Commit != "abc1234" {
+		t.Errorf("unpinned entry = %+v, want default branch at abc1234", got)
+	}
+	if got := lf.Skills[1]; got.Ref != "def5678" || got.Commit != "def5678" {
+		t.Errorf("pinned entry = %+v, want declared and resolved def5678", got)
 	}
 }

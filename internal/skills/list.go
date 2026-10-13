@@ -10,8 +10,7 @@ import (
 type ListEntry struct {
 	DisplayName string
 	Source      string
-	Ref         string
-	Pinned      bool
+	Commit      string
 	Alias       string   // non-empty if installed under different name
 	Unlinked    []string // configured dirs without our link
 }
@@ -28,8 +27,7 @@ func List(p Paths) ([]ListEntry, error) {
 		entry := ListEntry{
 			DisplayName: s.Name,
 			Source:      s.Repo,
-			Ref:         s.Ref,
-			Pinned:      s.Pinned,
+			Commit:      s.Commit,
 		}
 		if s.Alias != "" {
 			entry.DisplayName = fmt.Sprintf("%s (%s @ %s)", s.Alias, s.Name, s.Repo)

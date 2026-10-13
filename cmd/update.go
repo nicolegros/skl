@@ -28,9 +28,6 @@ func newUpdate() *cobra.Command {
 
 			result, err := skills.Update(name, env, resolver(force, env))
 			if result != nil {
-				for _, w := range result.Warnings {
-					fmt.Fprintf(os.Stderr, "warning: %s\n", w)
-				}
 				for _, r := range result.Results {
 					if r.Skipped {
 						fmt.Fprintf(os.Stderr, "Skipped %s\n", r.Name)

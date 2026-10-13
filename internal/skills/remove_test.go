@@ -60,7 +60,7 @@ func TestRemove_LegacyCopyGoesThroughResolver(t *testing.T) {
 		kept       bool
 	}{{Skip, true}, {Overwrite, false}} {
 		env := newEnv(t, "", 1)
-		lock.Save(&lock.File{Skills: []lock.Skill{{Name: "tdd", Repo: "owner/repo", Path: "tdd", Ref: "abc"}}}, env.Lock)
+		lock.Save(&lock.File{Skills: []lock.Skill{{Name: "tdd", Repo: "owner/repo", Path: "tdd", Commit: "abc"}}}, env.Lock)
 		copyPath := filepath.Join(env.Dirs[0], "tdd")
 		writeFile(t, filepath.Join(copyPath, "SKILL.md"), "# TDD")
 		r := &recorder{resolution: tc.resolution}

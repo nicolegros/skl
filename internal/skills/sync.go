@@ -90,11 +90,10 @@ type Resolver func(skill string, conflicts []Conflict) Resolution
 
 func skipAll(string, []Conflict) Resolution { return Skip }
 
-// fetched is a freshly downloaded skill directory and the ref it came from.
+// fetched is a freshly downloaded skill directory and the commit it came from.
 type fetched struct {
 	dir    string
-	ref    string
-	pinned bool
+	commit string
 }
 
 // sync writes src (if non-nil) into the store, then links every configured dir.
@@ -192,8 +191,7 @@ func sync(entry lock.Skill, src *fetched, env Env, resolve Resolver) (lock.Skill
 		if err := replaceDir(staged, storePath); err != nil {
 			return entry, false, fmt.Errorf("writing store: %w", err)
 		}
-		entry.Ref = src.ref
-		entry.Pinned = src.pinned
+		entry.Commit = src.commit
 		entry.Files = reference
 		wrote = true
 	}

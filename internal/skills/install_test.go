@@ -24,7 +24,7 @@ func TestInstall_StoresOnceAndLinksEveryDir(t *testing.T) {
 	env := newEnv(t, url, 2)
 	r := &recorder{}
 
-	result, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Ref: "abc123", Pinned: true}, env, r.resolve)
+	result, err := Install(InstallOptions{Owner: "owner", Repo: "repo", Ref: "v1"}, env, r.resolve)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
@@ -47,7 +47,7 @@ func TestInstall_StoresOnceAndLinksEveryDir(t *testing.T) {
 		t.Fatalf("lock has %d skills, want 1", len(lf.Skills))
 	}
 	s := lf.Skills[0]
-	if s.Name != "repo" || s.Repo != "owner/repo" || s.Ref != "abc123" || !s.Pinned {
+	if s.Name != "repo" || s.Repo != "owner/repo" || s.Ref != "v1" || s.Commit != "abc123" {
 		t.Errorf("lock entry = %+v", s)
 	}
 	wantFiles := map[string]string{"SKILL.md": sha("# My Skill"), "helpers.sh": sha("#!/bin/bash")}
@@ -412,7 +412,7 @@ func TestInstallAll_LinksEverySkill(t *testing.T) {
 		assertLinked(t, dir, "grill", env.Store)
 	}
 	lf := loadLock(t, env)
-	if s, ok := lf.Get("tdd"); !ok || s.Path != "tdd" || s.Ref != "abc123" || !slices.Equal(s.Links, env.Dirs) {
+	if s, ok := lf.Get("tdd"); !ok || s.Path != "tdd" || s.Commit != "abc123" || !slices.Equal(s.Links, env.Dirs) {
 		t.Errorf("lock tdd = %+v", s)
 	}
 }

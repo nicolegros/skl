@@ -17,8 +17,8 @@ func TestList_MarksUnlinkedDirs(t *testing.T) {
 	os.MkdirAll(filepath.Join(cfg, "skl"), 0o755)
 	os.WriteFile(filepath.Join(cfg, "skl", "config.yaml"), []byte("directories:\n  - "+claude+"\n  - "+pi+"\n"), 0o644)
 	lock.Save(&lock.File{Skills: []lock.Skill{
-		{Name: "tdd", Repo: "owner/repo", Ref: "abc1234567"},
-		{Name: "grill", Repo: "owner/repo", Ref: "def1234567"},
+		{Name: "tdd", Repo: "owner/repo", Commit: "abc1234567"},
+		{Name: "grill", Repo: "owner/repo", Commit: "def1234567"},
 	}}, filepath.Join(cfg, "skl", "skl.lock"))
 	for _, name := range []string{"tdd", "grill"} {
 		os.MkdirAll(filepath.Join(data, "skl", "skills", name), 0o755)
