@@ -85,7 +85,11 @@ func TestRemove_EditedStoreCopyGoesThroughResolver(t *testing.T) {
 		if lf := loadLock(t, env); (len(lf.Skills) == 1) != tc.kept {
 			t.Errorf("resolution %v: lock = %+v, want entry kept %v", tc.resolution, lf.Skills, tc.kept)
 		}
-		if got, want := readFile(t, manifestPath()), dirsBlock(env)+"skills: {}\n"; got != want {
+		want := dirsBlock(env) + "skills: {}\n"
+		if tc.kept {
+			want = dirsBlock(env) + "skills:\n  repo: owner/repo\n"
+		}
+		if got := readFile(t, manifestPath()); got != want {
 			t.Errorf("resolution %v: skl.yaml =\n%s\nwant\n%s", tc.resolution, got, want)
 		}
 	}
