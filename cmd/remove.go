@@ -20,10 +20,7 @@ func newRemove() *cobra.Command {
 				return err
 			}
 
-			dirs := make([]string, len(cfg.Directories))
-			for i, d := range cfg.Directories {
-				dirs[i] = skills.ExpandPath(d)
-			}
+			dirs := cfg.Directories
 
 			lockPath := filepath.Join(config.Dir(), "skl.lock")
 

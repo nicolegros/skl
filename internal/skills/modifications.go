@@ -11,8 +11,8 @@ import (
 
 // Modification represents local changes detected in one directory.
 type Modification struct {
-	Dir           string   // parent directory (e.g., ~/.kiro/skills)
-	SkillDir      string   // full path to the skill directory on disk
+	Dir           string // parent directory (e.g., ~/.kiro/skills)
+	SkillDir      string // full path to the skill directory on disk
 	ModifiedFiles []string
 }
 

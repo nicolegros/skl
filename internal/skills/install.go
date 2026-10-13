@@ -324,15 +324,6 @@ func skillExists(name string, dirs []string) bool {
 	return false
 }
 
-// ExpandPath resolves ~ to home directory.
-func ExpandPath(path string) string {
-	if strings.HasPrefix(path, "~/") {
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, path[2:])
-	}
-	return path
-}
-
 func extractTarball(r io.Reader, dest string) error {
 	gr, err := gzip.NewReader(r)
 	if err != nil {
