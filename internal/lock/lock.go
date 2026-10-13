@@ -14,15 +14,36 @@ type Skill struct {
 	Pinned bool              `json:"pinned"`
 	Alias  string            `json:"alias,omitempty"`
 	Files  map[string]string `json:"files,omitempty"`
+	// Links lists the directories holding our symlink. nil marks an entry not yet migrated from copies.
+	Links []string `json:"links"`
+}
+
+// InstalledName is the directory name the skill is installed under.
+func (s Skill) InstalledName() string {
+	if s.Alias != "" {
+		return s.Alias
+	}
+	return s.Name
 }
 
 type File struct {
 	Skills []Skill `json:"skills"`
 }
 
+// Get returns the entry installed under name.
+func (f *File) Get(name string) (Skill, bool) {
+	for _, s := range f.Skills {
+		if s.InstalledName() == name {
+			return s, true
+		}
+	}
+	return Skill{}, false
+}
+
+// Add inserts s, replacing any entry installed under the same name.
 func (f *File) Add(s Skill) {
 	for i, existing := range f.Skills {
-		if existing.Name == s.Name {
+		if existing.InstalledName() == s.InstalledName() {
 			f.Skills[i] = s
 			return
 		}
@@ -30,9 +51,10 @@ func (f *File) Add(s Skill) {
 	f.Skills = append(f.Skills, s)
 }
 
+// Remove deletes the entry installed under name.
 func (f *File) Remove(name string) bool {
 	for i, s := range f.Skills {
-		if s.Name == name || s.Alias == name {
+		if s.InstalledName() == name {
 			f.Skills = append(f.Skills[:i], f.Skills[i+1:]...)
 			return true
 		}
