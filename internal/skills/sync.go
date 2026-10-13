@@ -122,7 +122,8 @@ func sync(entry lock.Skill, src *fetched, env Env, resolve Resolver) (lock.Skill
 			if err != nil {
 				return entry, false, err
 			}
-			if changed := diffChecksums(entry.Files, current); len(changed) > 0 {
+			// A store already holding the incoming content is what an interrupted earlier run left behind.
+			if changed := diffChecksums(entry.Files, current); len(changed) > 0 && len(diffChecksums(reference, current)) > 0 {
 				conflicts = append(conflicts, Conflict{Path: storePath, Kind: StoreEdited, Files: changed})
 				storeConflict = true
 			}

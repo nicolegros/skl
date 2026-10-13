@@ -8,8 +8,9 @@ import (
 
 func NewRoot(version string) *cobra.Command {
 	root := &cobra.Command{
-		Use:   "skl",
-		Short: "Manage agent skill installations from GitHub",
+		Use:          "skl",
+		Short:        "Manage agent skill installations from GitHub",
+		SilenceUsage: true,
 	}
 	root.AddCommand(newInstall(), newUpdate(), newRemove(), newList())
 	root.AddCommand(&cobra.Command{

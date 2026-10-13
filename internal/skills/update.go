@@ -1,50 +1,16 @@
 package skills
 
 import (
-	"errors"
 	"fmt"
 
-	"github.com/nicolegros/skl/internal/lock"
+	"github.com/nicolegros/skl/internal/config"
 )
 
-type UpdateResult struct {
-	Results []Result
-}
-
-// Update re-resolves the declared ref of installed skills. An empty name updates all.
-func Update(name string, env Env, resolve Resolver) (*UpdateResult, error) {
-	lf, err := lock.Load(env.Lock)
-	if err != nil {
-		return nil, err
+// Update converges, re-resolving the declared ref of the named skill, or of every skill when name is empty.
+// It writes the lock, never skl.yaml.
+func Update(cfg *config.Config, name string, env Env, resolve Resolver) ([]Result, error) {
+	if _, ok := cfg.Skills[name]; name != "" && !ok {
+		return nil, fmt.Errorf("skill %q not found in skl.yaml", name)
 	}
-	if name != "" {
-		if _, ok := lf.Get(name); !ok {
-			return nil, fmt.Errorf("skill %q not found in lock file", name)
-		}
-	}
-	if err := reconcile(lf, env, resolve, ""); err != nil {
-		return nil, errors.Join(err, lock.Save(lf, env.Lock))
-	}
-
-	f := newFetcher(env)
-	defer f.cleanup()
-
-	result := &UpdateResult{}
-	for i, entry := range lf.Skills {
-		installed := entry.InstalledName()
-		if name != "" && installed != name {
-			continue
-		}
-		dir, commit, err := f.fetch(entry.Repo, entry.Ref, entry.Path)
-		if err != nil {
-			return result, errors.Join(fmt.Errorf("updating %s: %w", installed, err), lock.Save(lf, env.Lock))
-		}
-		updated, wrote, err := sync(entry, &fetched{dir: dir, commit: commit}, env, resolve)
-		if err != nil {
-			return result, errors.Join(fmt.Errorf("updating %s: %w", installed, err), lock.Save(lf, env.Lock))
-		}
-		lf.Skills[i] = updated
-		result.Results = append(result.Results, Result{Name: installed, Skipped: !wrote})
-	}
-	return result, lock.Save(lf, env.Lock)
+	return converge(cfg.Skills, func(n string) bool { return name == "" || n == name }, env, resolve)
 }

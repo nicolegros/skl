@@ -9,24 +9,34 @@ import (
 	"github.com/nicolegros/skl/internal/lock"
 )
 
-func TestList_MarksUnlinkedDirs(t *testing.T) {
+func TestList_ShowsManifestRowsWithDriftFlags(t *testing.T) {
 	cfg, data, agents := t.TempDir(), t.TempDir(), t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfg)
 	t.Setenv("XDG_DATA_HOME", data)
 	claude, pi := filepath.Join(agents, "claude"), filepath.Join(agents, "pi")
 	os.MkdirAll(filepath.Join(cfg, "skl"), 0o755)
-	os.WriteFile(filepath.Join(cfg, "skl", "skl.yaml"), []byte("directories:\n  - "+claude+"\n  - "+pi+"\nskills:\n  grill: owner/repo\n  tdd: owner/repo\n"), 0o644)
+	os.WriteFile(filepath.Join(cfg, "skl", "skl.yaml"), []byte(`directories:
+  - `+claude+`
+  - `+pi+`
+skills:
+  grill: owner/repo/grill@v2
+  new: owner/new
+  tdd: owner/repo/tdd
+`), 0o644)
 	lock.Save(&lock.File{Skills: []lock.Skill{
-		{Name: "tdd", Repo: "owner/repo", Commit: "abc1234567"},
-		{Name: "grill", Repo: "owner/repo", Commit: "def1234567"},
+		{Name: "tdd", Repo: "owner/repo", Path: "tdd", Commit: "abc1234567"},
+		{Name: "grill", Repo: "owner/repo", Path: "grill", Commit: "def1234567"},
+		{Name: "old", Repo: "owner/old", Ref: "v1", Commit: "0009999999"},
 	}}, filepath.Join(cfg, "skl", "skl.lock"))
-	for _, name := range []string{"tdd", "grill"} {
-		os.MkdirAll(filepath.Join(data, "skl", "skills", name), 0o755)
-		os.MkdirAll(claude, 0o755)
-		os.Symlink(filepath.Join(data, "skl", "skills", name), filepath.Join(claude, name))
+	for _, name := range []string{"tdd", "grill", "old"} {
+		for _, dir := range []string{claude, pi} {
+			if name == "tdd" && dir == pi {
+				continue
+			}
+			os.MkdirAll(dir, 0o755)
+			os.Symlink(filepath.Join(data, "skl", "skills", name), filepath.Join(dir, name))
+		}
 	}
-	os.MkdirAll(pi, 0o755)
-	os.Symlink(filepath.Join(data, "skl", "skills", "tdd"), filepath.Join(pi, "tdd"))
 
 	root := NewRoot("test")
 	var out bytes.Buffer
@@ -36,7 +46,11 @@ func TestList_MarksUnlinkedDirs(t *testing.T) {
 		t.Fatalf("list error = %v", err)
 	}
 
-	want := "tdd     owner/repo@abc1234\ngrill   owner/repo@def1234 (unlinked: " + pi + ")\n"
+	want := `grill   owner/repo/grill@v2 def1234 (changed)
+new     owner/new (not installed)
+old     owner/old@v1 0009999 (not in skl.yaml, removed on next install)
+tdd     owner/repo/tdd abc1234 (unlinked: ` + pi + `)
+`
 	if out.String() != want {
 		t.Errorf("list output =\n%s\nwant\n%s", out.String(), want)
 	}
