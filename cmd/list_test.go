@@ -15,7 +15,7 @@ func TestList_MarksUnlinkedDirs(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", data)
 	claude, pi := filepath.Join(agents, "claude"), filepath.Join(agents, "pi")
 	os.MkdirAll(filepath.Join(cfg, "skl"), 0o755)
-	os.WriteFile(filepath.Join(cfg, "skl", "config.yaml"), []byte("directories:\n  - "+claude+"\n  - "+pi+"\n"), 0o644)
+	os.WriteFile(filepath.Join(cfg, "skl", "skl.yaml"), []byte("directories:\n  - "+claude+"\n  - "+pi+"\nskills:\n  grill: owner/repo\n  tdd: owner/repo\n"), 0o644)
 	lock.Save(&lock.File{Skills: []lock.Skill{
 		{Name: "tdd", Repo: "owner/repo", Commit: "abc1234567"},
 		{Name: "grill", Repo: "owner/repo", Commit: "def1234567"},

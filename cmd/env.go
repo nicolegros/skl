@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"github.com/nicolegros/skl/internal/config"
 	"github.com/nicolegros/skl/internal/github"
@@ -18,7 +17,7 @@ func loadPaths() (skills.Paths, error) {
 		Store:   config.StoreDir(),
 		Backups: config.BackupsDir(),
 		Dirs:    cfg.Directories,
-		Lock:    filepath.Join(config.Dir(), "skl.lock"),
+		Lock:    config.LockPath(),
 	}, nil
 }
 
