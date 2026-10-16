@@ -1,0 +1,19 @@
+class Skl < Formula
+  desc "Install, update, and remove AI agent skills from GitHub repositories"
+  homepage "https://github.com/nicolegros/skl"
+  url "https://github.com/nicolegros/skl/archive/refs/tags/v@VERSION@.tar.gz"
+  sha256 "@SHA256@"
+  license "MIT"
+  head "https://github.com/nicolegros/skl.git", branch: "main"
+
+  depends_on "go" => :build
+
+  def install
+    system "go", "build", *std_go_args(ldflags: "-X main.version=#{version}")
+    generate_completions_from_executable(bin/"skl", "completion")
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/skl version")
+  end
+end
