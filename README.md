@@ -5,10 +5,18 @@ Install, update, and remove AI agent skills from GitHub repositories, across mul
 ## Install
 
 ```bash
+brew install nicolegros/tap/skl
+```
+
+Homebrew builds `skl` from source on macOS and Linux and installs bash, zsh, and fish completions.
+
+With Go:
+
+```bash
 go install github.com/nicolegros/skl@latest
 ```
 
-Or build from source:
+Or build from a clone:
 
 ```bash
 make install
