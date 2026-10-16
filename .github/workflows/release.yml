@@ -43,3 +43,48 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    environment: homebrew-tap
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: nicolegros/homebrew-tap
+          ref: main
+          path: tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+
+      # Most pushes to main do not release, so this renders the latest release and pushes only on change.
+      - name: Download latest release source tarball
+        run: |
+          TAG="$(gh release view --json tagName --jq .tagName)"
+          curl -fsSL -o skl.tar.gz "https://github.com/${{ github.repository }}/archive/refs/tags/$TAG.tar.gz"
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+
+      - name: Render formula
+        run: |
+          mkdir -p tap/Formula
+          packaging/homebrew/render-formula.sh "$VERSION" skl.tar.gz > tap/Formula/skl.rb
+          cat tap/Formula/skl.rb
+
+      - name: Push to nicolegros/homebrew-tap
+        working-directory: tap
+        run: |
+          git add Formula/skl.rb
+          if git diff --cached --quiet; then
+            echo "Formula/skl.rb already at $VERSION, nothing to push"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "skl $VERSION"
+          git push origin HEAD:main
